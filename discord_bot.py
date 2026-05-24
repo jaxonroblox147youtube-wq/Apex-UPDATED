@@ -106,11 +106,16 @@ async def poll_choice(
     for i in range(len(options)):
         await message.add_reaction(emojis[i])
 
-# ── Moderation ────────────────────────────────────────────────────────────────
+# ── Owner-only check ──────────────────────────────────────────────────────────
 
-@bot.tree.command(name="kick", description="Kick a member from the server")
+def is_owner(interaction: discord.Interaction) -> bool:
+    return interaction.user == interaction.guild.owner
+
+# ── Moderation (server owner only) ───────────────────────────────────────────
+
+@bot.tree.command(name="kick", description="Kick a member from the server (owner only)")
 @app_commands.describe(member="The member to kick", reason="Reason for the kick")
-@app_commands.checks.has_permissions(kick_members=True)
+@app_commands.check(is_owner)
 async def kick(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided"):
     if member == interaction.user:
         await interaction.response.send_message("❌ You can't kick yourself.", ephemeral=True)
@@ -121,9 +126,9 @@ async def kick(interaction: discord.Interaction, member: discord.Member, reason:
     await member.kick(reason=reason)
     await interaction.response.send_message(f'👢 **{member.display_name}** has been kicked. Reason: {reason}')
 
-@bot.tree.command(name="ban", description="Ban a member from the server")
+@bot.tree.command(name="ban", description="Ban a member from the server (owner only)")
 @app_commands.describe(member="The member to ban", reason="Reason for the ban")
-@app_commands.checks.has_permissions(ban_members=True)
+@app_commands.check(is_owner)
 async def ban(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided"):
     if member == interaction.user:
         await interaction.response.send_message("❌ You can't ban yourself.", ephemeral=True)
@@ -134,9 +139,9 @@ async def ban(interaction: discord.Interaction, member: discord.Member, reason: 
     await member.ban(reason=reason)
     await interaction.response.send_message(f'🔨 **{member.display_name}** has been banned. Reason: {reason}')
 
-@bot.tree.command(name="unban", description="Unban a user by their ID")
+@bot.tree.command(name="unban", description="Unban a user by their ID (owner only)")
 @app_commands.describe(user_id="The Discord user ID to unban")
-@app_commands.checks.has_permissions(ban_members=True)
+@app_commands.check(is_owner)
 async def unban(interaction: discord.Interaction, user_id: str):
     try:
         uid = int(user_id)
@@ -150,9 +155,9 @@ async def unban(interaction: discord.Interaction, user_id: str):
     except discord.NotFound:
         await interaction.response.send_message("❌ That user is not banned or doesn't exist.", ephemeral=True)
 
-@bot.tree.command(name="timeout", description="Timeout a member (mute them temporarily)")
+@bot.tree.command(name="timeout", description="Timeout a member temporarily (owner only)")
 @app_commands.describe(member="The member to timeout", minutes="Duration in minutes (max 40320 = 4 weeks)")
-@app_commands.checks.has_permissions(moderate_members=True)
+@app_commands.check(is_owner)
 async def timeout(interaction: discord.Interaction, member: discord.Member, minutes: int = 5):
     if minutes < 1 or minutes > 40320:
         await interaction.response.send_message("❌ Duration must be between 1 and 40320 minutes.", ephemeral=True)
@@ -162,9 +167,9 @@ async def timeout(interaction: discord.Interaction, member: discord.Member, minu
     await member.timeout(duration)
     await interaction.response.send_message(f'⏱️ **{member.display_name}** has been timed out for {minutes} minute(s).')
 
-@bot.tree.command(name="clear", description="Delete a number of messages from this channel")
+@bot.tree.command(name="clear", description="Delete a number of messages from this channel (owner only)")
 @app_commands.describe(amount="Number of messages to delete (1–100)")
-@app_commands.checks.has_permissions(manage_messages=True)
+@app_commands.check(is_owner)
 async def clear(interaction: discord.Interaction, amount: int = 10):
     if amount < 1 or amount > 100:
         await interaction.response.send_message("❌ Amount must be between 1 and 100.", ephemeral=True)
@@ -173,12 +178,12 @@ async def clear(interaction: discord.Interaction, amount: int = 10):
     deleted = await interaction.channel.purge(limit=amount)
     await interaction.followup.send(f'🧹 Deleted {len(deleted)} message(s).', ephemeral=True)
 
-# ── Error handler for missing permissions ─────────────────────────────────────
+# ── Error handler ─────────────────────────────────────────────────────────────
 
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
-    if isinstance(error, app_commands.MissingPermissions):
-        await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
+    if isinstance(error, app_commands.CheckFailure):
+        await interaction.response.send_message("❌ Only the server owner can use this command.", ephemeral=True)
     else:
         await interaction.response.send_message(f"❌ An error occurred: {error}", ephemeral=True)
 

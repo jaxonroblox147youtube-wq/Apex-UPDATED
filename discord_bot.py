@@ -1,8 +1,24 @@
 import os
+import json
 import random
+import datetime
 import discord
 from discord import app_commands
 from discord.ext import commands
+
+WELCOME_FILE = "welcome_channels.json"
+
+def load_welcome_channels():
+    if os.path.exists(WELCOME_FILE):
+        with open(WELCOME_FILE, "r") as f:
+            return json.load(f)
+    return {}
+
+def save_welcome_channels(data):
+    with open(WELCOME_FILE, "w") as f:
+        json.dump(data, f)
+
+welcome_channels = load_welcome_channels()
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -21,6 +37,26 @@ bot = MyBot()
 @bot.event
 async def on_ready():
     print(f'Logged in as {bot.user.name}')
+
+# ── Welcome system ────────────────────────────────────────────────────────────
+
+@bot.event
+async def on_member_join(member: discord.Member):
+    guild_id = str(member.guild.id)
+    channel_id = welcome_channels.get(guild_id)
+    if not channel_id:
+        return
+    channel = member.guild.get_channel(int(channel_id))
+    if not channel:
+        return
+    embed = discord.Embed(
+        title=f"👋 Welcome to {member.guild.name}!",
+        description=f"Hey {member.mention}, glad you're here! You are member **#{member.guild.member_count}**.",
+        color=discord.Color.green()
+    )
+    embed.set_thumbnail(url=member.display_avatar.url)
+    embed.set_footer(text=f"Joined • {datetime.datetime.now().strftime('%B %d, %Y')}")
+    await channel.send(embed=embed)
 
 # ── Original commands ─────────────────────────────────────────────────────────
 
@@ -111,6 +147,36 @@ async def poll_choice(
 def is_owner(interaction: discord.Interaction) -> bool:
     return interaction.user == interaction.guild.owner
 
+# ── Welcome setup commands (owner only) ──────────────────────────────────────
+
+@bot.tree.command(name="setwelcome", description="Set the channel where welcome messages are sent (owner only)")
+@app_commands.describe(channel="The channel to send welcome messages in")
+@app_commands.check(is_owner)
+async def setwelcome(interaction: discord.Interaction, channel: discord.TextChannel):
+    welcome_channels[str(interaction.guild.id)] = str(channel.id)
+    save_welcome_channels(welcome_channels)
+    await interaction.response.send_message(f'✅ Welcome messages will now be sent in {channel.mention}.')
+
+@bot.tree.command(name="clearwelcome", description="Disable welcome messages for this server (owner only)")
+@app_commands.check(is_owner)
+async def clearwelcome(interaction: discord.Interaction):
+    welcome_channels.pop(str(interaction.guild.id), None)
+    save_welcome_channels(welcome_channels)
+    await interaction.response.send_message("✅ Welcome messages have been disabled.")
+
+@bot.tree.command(name="welcometest", description="Preview what the welcome message looks like (owner only)")
+@app_commands.check(is_owner)
+async def welcometest(interaction: discord.Interaction):
+    member = interaction.user
+    embed = discord.Embed(
+        title=f"👋 Welcome to {interaction.guild.name}!",
+        description=f"Hey {member.mention}, glad you're here! You are member **#{interaction.guild.member_count}**.",
+        color=discord.Color.green()
+    )
+    embed.set_thumbnail(url=member.display_avatar.url)
+    embed.set_footer(text=f"Joined • {datetime.datetime.now().strftime('%B %d, %Y')}")
+    await interaction.response.send_message("Here's a preview of the welcome message:", embed=embed, ephemeral=True)
+
 # ── Moderation (server owner only) ───────────────────────────────────────────
 
 @bot.tree.command(name="kick", description="Kick a member from the server (owner only)")
@@ -162,7 +228,6 @@ async def timeout(interaction: discord.Interaction, member: discord.Member, minu
     if minutes < 1 or minutes > 40320:
         await interaction.response.send_message("❌ Duration must be between 1 and 40320 minutes.", ephemeral=True)
         return
-    import datetime
     duration = datetime.timedelta(minutes=minutes)
     await member.timeout(duration)
     await interaction.response.send_message(f'⏱️ **{member.display_name}** has been timed out for {minutes} minute(s).')

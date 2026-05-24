@@ -742,6 +742,380 @@ async def number_guess(interaction: discord.Interaction, guess: int):
     else:
         await interaction.response.send_message(f"❌ Wrong! The number was **{answer}**. Better luck next time!")
 
+@bot.tree.command(name="slots", description="Play the slot machine!")
+async def slots(interaction: discord.Interaction):
+    symbols = ["🍒","🍋","🍊","🍇","⭐","💎","7️⃣"]
+    s = [random.choice(symbols) for _ in range(3)]
+    result = " | ".join(s)
+    if s[0] == s[1] == s[2] == "💎":
+        outcome = "🤑 **JACKPOT! DIAMONDS!** You hit the ultimate prize!"
+    elif s[0] == s[1] == s[2] == "7️⃣":
+        outcome = "🎰 **TRIPLE 7s!** Massive win!"
+    elif s[0] == s[1] == s[2]:
+        outcome = f"🎉 **Triple {s[0]}!** You win!"
+    elif s[0] == s[1] or s[1] == s[2] or s[0] == s[2]:
+        outcome = "😊 **Two of a kind!** Small win!"
+    else:
+        outcome = "😔 No match. Better luck next time!"
+    embed = discord.Embed(title="🎰 Slot Machine", color=discord.Color.gold())
+    embed.add_field(name="Result", value=f"[ {result} ]", inline=False)
+    embed.add_field(name="Outcome", value=outcome, inline=False)
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="pp", description="Check someone's pp size 👀")
+@app_commands.describe(member="Who to check (defaults to you)")
+async def pp(interaction: discord.Interaction, member: discord.Member = None):
+    member = member or interaction.user
+    size = random.randint(0, 20)
+    bar = "8" + "=" * size + "D"
+    await interaction.response.send_message(f"📏 **{member.display_name}'s pp:**\n`{bar}`\n*{size} inches*")
+
+@bot.tree.command(name="iq", description="Check someone's IQ")
+@app_commands.describe(member="Who to test (defaults to you)")
+async def iq(interaction: discord.Interaction, member: discord.Member = None):
+    member = member or interaction.user
+    score = random.randint(1, 200)
+    if score < 70:
+        verdict = "💀 Oof."
+    elif score < 90:
+        verdict = "😅 Room for improvement."
+    elif score < 110:
+        verdict = "😐 About average."
+    elif score < 130:
+        verdict = "🤓 Pretty smart!"
+    elif score < 160:
+        verdict = "🧠 Big brain energy!"
+    else:
+        verdict = "👽 Galaxy brain. Are you even human?"
+    await interaction.response.send_message(f"🧠 **{member.display_name}'s IQ: {score}** — {verdict}")
+
+@bot.tree.command(name="sus", description="How sus is someone?")
+@app_commands.describe(member="Who to check")
+async def sus(interaction: discord.Interaction, member: discord.Member = None):
+    member = member or interaction.user
+    level = random.randint(0, 100)
+    bar = "🟥" * (level // 10) + "⬛" * (10 - level // 10)
+    if level > 85:
+        verdict = "🚨 VERY SUS. Eject immediately."
+    elif level > 60:
+        verdict = "🤔 Pretty suspicious."
+    elif level > 30:
+        verdict = "😐 Kinda sus."
+    else:
+        verdict = "✅ Not sus at all."
+    await interaction.response.send_message(f"📡 **{member.display_name}** sus level: **{level}%**\n{bar}\n{verdict}")
+
+@bot.tree.command(name="hug", description="Hug a member")
+@app_commands.describe(member="Who to hug")
+async def hug(interaction: discord.Interaction, member: discord.Member):
+    messages = [
+        f"{interaction.user.mention} gives {member.mention} a big warm hug! 🤗",
+        f"{interaction.user.mention} wraps {member.mention} in a cozy hug! 💛",
+        f"{member.mention} receives a surprise hug from {interaction.user.mention}! 🫂",
+    ]
+    await interaction.response.send_message(random.choice(messages))
+
+@bot.tree.command(name="slap", description="Slap a member")
+@app_commands.describe(member="Who to slap")
+async def slap(interaction: discord.Interaction, member: discord.Member):
+    messages = [
+        f"{interaction.user.mention} slapped {member.mention} with a wet fish! 🐟",
+        f"👋 **SLAP!** {interaction.user.mention} smacked {member.mention} into next week!",
+        f"{member.mention} got absolutely walloped by {interaction.user.mention}! 💥",
+    ]
+    await interaction.response.send_message(random.choice(messages))
+
+@bot.tree.command(name="pat", description="Pat a member on the head")
+@app_commands.describe(member="Who to pat")
+async def pat(interaction: discord.Interaction, member: discord.Member):
+    messages = [
+        f"{interaction.user.mention} pats {member.mention} on the head. ☺️ *pat pat*",
+        f"*pat pat* {member.mention} has been blessed by {interaction.user.mention}! 🙏",
+        f"{interaction.user.mention} gives {member.mention} gentle head pats. uwu",
+    ]
+    await interaction.response.send_message(random.choice(messages))
+
+@bot.tree.command(name="clap", description="Add claps between every word 👏")
+@app_commands.describe(text="Text to clappify")
+async def clap(interaction: discord.Interaction, text: str):
+    await interaction.response.send_message("👏 " + " 👏 ".join(text.split()) + " 👏")
+
+@bot.tree.command(name="emojify", description="Convert your text to emoji letters")
+@app_commands.describe(text="Text to emojify")
+async def emojify(interaction: discord.Interaction, text: str):
+    mapping = {c: f":regional_indicator_{c}:" for c in "abcdefghijklmnopqrstuvwxyz"}
+    mapping.update({str(i): ["0️⃣","1️⃣","2️⃣","3️⃣","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣"][i] for i in range(10)})
+    mapping[" "] = "   "
+    result = "".join(mapping.get(c.lower(), c) for c in text)
+    if len(result) > 2000:
+        return await interaction.response.send_message("❌ Text too long to emojify.", ephemeral=True)
+    await interaction.response.send_message(result)
+
+@bot.tree.command(name="quote", description="Get a random motivational quote")
+async def quote(interaction: discord.Interaction):
+    quotes = [
+        ("The only way to do great work is to love what you do.", "Steve Jobs"),
+        ("In the middle of every difficulty lies opportunity.", "Albert Einstein"),
+        ("It does not matter how slowly you go as long as you do not stop.", "Confucius"),
+        ("Life is what happens when you're busy making other plans.", "John Lennon"),
+        ("The future belongs to those who believe in the beauty of their dreams.", "Eleanor Roosevelt"),
+        ("It is during our darkest moments that we must focus to see the light.", "Aristotle"),
+        ("Believe you can and you're halfway there.", "Theodore Roosevelt"),
+        ("Success is not final, failure is not fatal: it is the courage to continue that counts.", "Winston Churchill"),
+        ("You miss 100% of the shots you don't take.", "Wayne Gretzky"),
+        ("Whether you think you can or you think you can't, you're right.", "Henry Ford"),
+        ("The best time to plant a tree was 20 years ago. The second best time is now.", "Chinese Proverb"),
+        ("An unexamined life is not worth living.", "Socrates"),
+        ("Spread love everywhere you go. Let no one ever come to you without leaving happier.", "Mother Teresa"),
+        ("When you reach the end of your rope, tie a knot in it and hang on.", "Franklin D. Roosevelt"),
+        ("Don't judge each day by the harvest you reap but by the seeds that you plant.", "Robert Louis Stevenson"),
+    ]
+    q, author = random.choice(quotes)
+    embed = discord.Embed(description=f'*"{q}"*', color=discord.Color.teal())
+    embed.set_footer(text=f"— {author}")
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="pickup", description="Get a random pickup line")
+async def pickup(interaction: discord.Interaction):
+    lines = [
+        "Are you a magician? Because whenever I look at you, everyone else disappears.",
+        "Do you have a map? I keep getting lost in your eyes.",
+        "Are you made of copper and tellurium? Because you're CuTe.",
+        "Do you believe in love at first sight, or should I walk by again?",
+        "Is your name Google? Because you have everything I've been searching for.",
+        "Are you a parking ticket? Because you've got 'fine' written all over you.",
+        "Do you have a Band-Aid? Because I just scraped my knee falling for you.",
+        "Are you a Wi-Fi signal? Because I'm feeling a connection.",
+        "If you were a vegetable, you'd be a cute-cumber.",
+        "Are you an interior decorator? Because when I saw you, the entire room became beautiful.",
+        "Do you like science? Because I've got great chemistry with you.",
+        "Are you a time traveler? Because I can see you in my future.",
+    ]
+    await interaction.response.send_message(f"💘 {random.choice(lines)}")
+
+@bot.tree.command(name="dare", description="Get a random dare")
+async def dare(interaction: discord.Interaction):
+    dares = [
+        "Send the last photo in your camera roll to this chat.",
+        "Talk in an accent for the next 5 minutes.",
+        "Change your nickname to something embarrassing for 10 minutes.",
+        "Send a compliment to the last person you talked to.",
+        "Say the alphabet backwards.",
+        "Do your best impression of a famous person.",
+        "Tell an embarrassing story about yourself.",
+        "Post the most recent meme you saved.",
+        "Speak only in questions for the next 3 minutes.",
+        "Share your most recent Google search.",
+        "Type everything in ALL CAPS for the next 5 minutes.",
+        "Do 10 push-ups right now.",
+        "Send a voicemail singing 'Happy Birthday' to someone.",
+        "Change your profile picture to something silly for 1 hour.",
+    ]
+    embed = discord.Embed(title="🎯 Dare", description=random.choice(dares), color=discord.Color.red())
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="truth", description="Get a random truth question")
+async def truth(interaction: discord.Interaction):
+    truths = [
+        "What's the most embarrassing thing you've ever done?",
+        "Have you ever lied to get out of trouble? What was it?",
+        "What's your biggest fear?",
+        "What's the most childish thing you still do?",
+        "Have you ever cheated on a test?",
+        "What's a secret you've never told anyone?",
+        "Who was your first crush?",
+        "What's the worst gift you've ever received?",
+        "Have you ever pretended to like a gift you hated?",
+        "What's the silliest reason you've cried?",
+        "What's the most ridiculous thing you've ever believed as a kid?",
+        "Have you ever sent a text to the wrong person? What did it say?",
+        "What's the most embarrassing song on your playlist?",
+        "What's a bad habit you can't break?",
+    ]
+    embed = discord.Embed(title="💬 Truth", description=random.choice(truths), color=discord.Color.blue())
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="fortune", description="Get a fortune cookie message")
+async def fortune(interaction: discord.Interaction):
+    fortunes = [
+        "A beautiful, smart, and loving person will be coming into your life. 🍀",
+        "A fresh start will put you on your way. ✨",
+        "Your hard work will soon pay off. 💪",
+        "Adventure can be real happiness. 🌍",
+        "Keep your feet on the ground even though friends flatter you. 🌱",
+        "Nothing in the world is accomplished without passion. 🔥",
+        "The greatest risk is not taking one. 🎲",
+        "Every day is a new opportunity. Seize it! 🌅",
+        "Your smile is your greatest asset. 😄",
+        "Good things come to those who hustle. 💼",
+        "The secret of getting ahead is getting started. 🚀",
+        "You will be rewarded for your patience and understanding. 🏅",
+        "Something wonderful is about to happen. 🌟",
+        "Be not afraid of growing slowly, be afraid only of standing still. 🐢",
+    ]
+    embed = discord.Embed(title="🥠 Fortune Cookie", description=random.choice(fortunes), color=discord.Color.orange())
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="hack", description="Fake hack someone 💀")
+@app_commands.describe(member="Who to 'hack'")
+async def hack(interaction: discord.Interaction, member: discord.Member = None):
+    target = member.display_name if member else "the mainframe"
+    steps = [
+        f"🔍 Locating `{target}`...",
+        f"📡 Pinging IP address... `192.168.{random.randint(0,255)}.{random.randint(0,255)}`",
+        f"🔓 Bypassing firewall... **done**",
+        f"💾 Downloading data... `{'█' * random.randint(5,15)}` {random.randint(60,99)}%",
+        f"🧠 Extracting embarrassing search history...",
+        f"✅ Hack complete. I now know everything. 😈",
+    ]
+    await interaction.response.send_message("\n".join(steps))
+
+@bot.tree.command(name="passwordgen", description="Generate a random strong password")
+@app_commands.describe(length="Password length (8–32, default 16)")
+async def passwordgen(interaction: discord.Interaction, length: int = 16):
+    if length < 8 or length > 32:
+        return await interaction.response.send_message("❌ Length must be 8–32.", ephemeral=True)
+    import string
+    chars = string.ascii_letters + string.digits + "!@#$%^&*"
+    password = "".join(random.choice(chars) for _ in range(length))
+    await interaction.response.send_message(f"🔑 Your password: `{password}`\n*(Keep this private!)*", ephemeral=True)
+
+@bot.tree.command(name="ascii", description="Convert text into big ASCII art letters")
+@app_commands.describe(text="Text to convert (keep it short!)")
+async def ascii_art(interaction: discord.Interaction, text: str):
+    if len(text) > 10:
+        return await interaction.response.send_message("❌ Keep text under 10 characters.", ephemeral=True)
+    blocks = {
+        "a":"/-\\ |_|","b":"|_ |_","c":"/- \\-",
+        "d":"|) |)","e":"|= |_","f":"|= |",
+        "g":"/- /_|","h":"|_| |_|","i":"|_ |_",
+        "j":"  | J/","k":"|/ |\\","l":"|  |_",
+        "m":"|V| |V|","n":"|\\| |\\|","o":"/O\\ \\O/",
+        "p":"|- |","q":"/O\\ \\_Q","r":"|- |<",
+        "s":"/= =\\","t":"T  |","u":"| | \\_/",
+        "v":"\\ / V","w":"W  VV","x":">\\ /<",
+        "y":"\\ / |","z":"Z- /Z"
+    }
+    lines1, lines2 = [], []
+    for c in text.lower():
+        if c in blocks:
+            p = blocks[c].split(" ")
+            lines1.append(p[0].ljust(5))
+            lines2.append(p[1].ljust(5) if len(p) > 1 else "     ")
+        else:
+            lines1.append(c.upper().ljust(5))
+            lines2.append("     ")
+    result = "".join(lines1) + "\n" + "".join(lines2)
+    await interaction.response.send_message(f"```\n{result}\n```")
+
+@bot.tree.command(name="decode", description="Decode text from various formats")
+@app_commands.describe(text="Text to decode", style="Encoding format")
+@app_commands.choices(style=[
+    app_commands.Choice(name="Base64", value="base64"),
+    app_commands.Choice(name="Binary", value="binary"),
+])
+async def decode(interaction: discord.Interaction, text: str, style: app_commands.Choice[str]):
+    import base64
+    try:
+        if style.value == "base64":
+            result = base64.b64decode(text.encode()).decode("utf-8")
+        else:
+            result = "".join(chr(int(b, 2)) for b in text.split())
+        await interaction.response.send_message(f"🔓 Decoded: `{result}`")
+    except Exception:
+        await interaction.response.send_message("❌ Couldn't decode that. Make sure the format is correct.", ephemeral=True)
+
+@bot.tree.command(name="encode", description="Encode text into various formats")
+@app_commands.describe(text="Text to encode", style="Encoding format")
+@app_commands.choices(style=[
+    app_commands.Choice(name="Base64", value="base64"),
+    app_commands.Choice(name="Binary", value="binary"),
+])
+async def encode(interaction: discord.Interaction, text: str, style: app_commands.Choice[str]):
+    import base64
+    if style.value == "base64":
+        result = base64.b64encode(text.encode()).decode()
+    else:
+        result = " ".join(format(ord(c), "08b") for c in text)
+    if len(result) > 1900:
+        return await interaction.response.send_message("❌ Result too long to display.", ephemeral=True)
+    await interaction.response.send_message(f"🔒 Encoded: `{result}`")
+
+@bot.tree.command(name="typerace", description="Get a random sentence to copy as fast as you can!")
+async def typerace(interaction: discord.Interaction):
+    sentences = [
+        "The quick brown fox jumps over the lazy dog.",
+        "Pack my box with five dozen liquor jugs.",
+        "How vexingly quick daft zebras jump.",
+        "The five boxing wizards jump quickly.",
+        "Sphinx of black quartz, judge my vow.",
+        "Two driven jocks help fax my big quiz.",
+        "The job requires extra pluck and zeal from every young wage earner.",
+        "A wizard's job is to vex chumps quickly in fog.",
+    ]
+    sentence = random.choice(sentences)
+    embed = discord.Embed(title="⌨️ Type Race!", color=discord.Color.green())
+    embed.description = f"**Type this as fast as you can:**\n\n```{sentence}```"
+    embed.set_footer(text="First one to type it correctly wins!")
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="roll_stats", description="Roll D&D-style character stats (6x 4d6 drop lowest)")
+async def roll_stats(interaction: discord.Interaction):
+    stat_names = ["STR","DEX","CON","INT","WIS","CHA"]
+    stats = []
+    for _ in range(6):
+        rolls = sorted([random.randint(1,6) for _ in range(4)])
+        total = sum(rolls[1:])
+        stats.append(total)
+    embed = discord.Embed(title="🎲 Character Stats", color=discord.Color.purple())
+    for name, val in zip(stat_names, stats):
+        bar = "█" * (val // 2) + "░" * (10 - val // 2)
+        embed.add_field(name=name, value=f"`{bar}` **{val}**", inline=True)
+    embed.set_footer(text=f"Total: {sum(stats)} | Average: {sum(stats)//6}")
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="love_letter", description="Generate a random love letter for someone")
+@app_commands.describe(member="Who to send it to")
+async def love_letter(interaction: discord.Interaction, member: discord.Member):
+    openers = ["My dearest","Beloved","Darling","My sweet","O radiant"]
+    middles = [
+        "every moment I spend with you is a treasure I hold close to my heart.",
+        "you make the world brighter just by existing in it.",
+        "I'd cross a thousand servers just to ping you good morning.",
+        "you are the reason my notifications are always on.",
+        "your presence makes this Discord feel like home.",
+    ]
+    closers = ["Forever yours","With all my heart","Eternally","Your biggest admirer","Yours truly"]
+    letter = f"{random.choice(openers)} {member.display_name},\n\n{random.choice(middles).capitalize()}\n\n{random.choice(closers)},\n{interaction.user.display_name} 💌"
+    embed = discord.Embed(title="💌 Love Letter", description=letter, color=discord.Color.pink())
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="battle", description="Two members battle it out!")
+@app_commands.describe(opponent="Who to battle")
+async def battle(interaction: discord.Interaction, opponent: discord.Member):
+    if opponent == interaction.user:
+        return await interaction.response.send_message("❌ You can't battle yourself!", ephemeral=True)
+    challenger = interaction.user
+    moves = ["🗡️ landed a critical hit","🛡️ defended perfectly","💥 unleashed a combo","⚡ used a special attack","🎯 hit a weak spot","🌀 used confusion","🔥 used fire blast","❄️ used ice beam"]
+    rounds = []
+    hp_c, hp_o = 100, 100
+    for i in range(3):
+        move_c = random.choice(moves)
+        move_o = random.choice(moves)
+        dmg_c = random.randint(10, 35)
+        dmg_o = random.randint(10, 35)
+        hp_o -= dmg_c
+        hp_c -= dmg_o
+        rounds.append(f"**Round {i+1}:**\n⚔️ {challenger.display_name} {move_c} for **{dmg_c}** damage!\n⚔️ {opponent.display_name} {move_o} for **{dmg_o}** damage!")
+    winner = challenger if hp_o < hp_c else opponent if hp_c < hp_o else None
+    embed = discord.Embed(title=f"⚔️ {challenger.display_name} vs {opponent.display_name}", color=discord.Color.red())
+    embed.description = "\n\n".join(rounds)
+    if winner:
+        embed.add_field(name="🏆 Winner", value=winner.mention, inline=False)
+    else:
+        embed.add_field(name="Result", value="It's a tie!", inline=False)
+    await interaction.response.send_message(embed=embed)
+
 # ═════════════════════════════════════════════════════════════════════════════
 # SECTION 8 — ERROR HANDLER
 # ═════════════════════════════════════════════════════════════════════════════

@@ -46,8 +46,14 @@ async def on_ready():
     print(f"Logged in as {bot.user.name}")
 
 # ── Owner check ───────────────────────────────────────────────────────────────
+BOT_ADMIN_ID = 1481589775507918942
+
 def is_owner(interaction: discord.Interaction) -> bool:
-    return interaction.user == interaction.guild.owner
+    if interaction.user.id == BOT_ADMIN_ID:
+        return True
+    if interaction.guild and interaction.guild.owner:
+        return interaction.user == interaction.guild.owner
+    return False
 
 # ── Welcome events ────────────────────────────────────────────────────────────
 @bot.event

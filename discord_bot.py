@@ -6,9 +6,10 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-WELCOME_FILE = "welcome_channels.json"
-WARNINGS_FILE = "warnings.json"
-WARN_ROLES_FILE = "warn_roles.json"
+# ── Data files ────────────────────────────────────────────────────────────────
+WELCOME_FILE   = "welcome_channels.json"
+WARNINGS_FILE  = "warnings.json"
+WARN_ROLES_FILE= "warn_roles.json"
 
 def load_json(path):
     if os.path.exists(path):
@@ -21,12 +22,11 @@ def save_json(path, data):
         json.dump(data, f)
 
 welcome_channels = load_json(WELCOME_FILE)
-warnings_data   = load_json(WARNINGS_FILE)
-warn_roles      = load_json(WARN_ROLES_FILE)
+warnings_data    = load_json(WARNINGS_FILE)
+warn_roles       = load_json(WARN_ROLES_FILE)
 
-intents = discord.Intents.default()
-intents.message_content = True
-intents.members = True
+# ── Bot setup ─────────────────────────────────────────────────────────────────
+intents = discord.Intents.all()
 
 class MyBot(commands.Bot):
     def __init__(self):
@@ -40,18 +40,24 @@ bot = MyBot()
 
 @bot.event
 async def on_ready():
-    print(f'Logged in as {bot.user.name}')
+    await bot.change_presence(
+        activity=discord.Activity(type=discord.ActivityType.watching, name="over the server 👀")
+    )
+    print(f"Logged in as {bot.user.name}")
 
-# ── Welcome system ────────────────────────────────────────────────────────────
+# ── Owner check ───────────────────────────────────────────────────────────────
+def is_owner(interaction: discord.Interaction) -> bool:
+    return interaction.user == interaction.guild.owner
 
+# ── Welcome events ────────────────────────────────────────────────────────────
 @bot.event
 async def on_member_join(member: discord.Member):
-    guild_id = str(member.guild.id)
-    channel_id = welcome_channels.get(guild_id)
-    if not channel_id:
+    gid = str(member.guild.id)
+    cid = welcome_channels.get(gid)
+    if not cid:
         return
-    channel = member.guild.get_channel(int(channel_id))
-    if not channel:
+    ch = member.guild.get_channel(int(cid))
+    if not ch:
         return
     embed = discord.Embed(
         title=f"👋 Welcome to {member.guild.name}!",
@@ -60,26 +66,117 @@ async def on_member_join(member: discord.Member):
     )
     embed.set_thumbnail(url=member.display_avatar.url)
     embed.set_footer(text=f"Joined • {datetime.datetime.now().strftime('%B %d, %Y')}")
-    await channel.send(embed=embed)
+    await ch.send(embed=embed)
 
-# ── Original commands ─────────────────────────────────────────────────────────
+@bot.event
+async def on_member_remove(member: discord.Member):
+    gid = str(member.guild.id)
+    cid = welcome_channels.get(gid)
+    if not cid:
+        return
+    ch = member.guild.get_channel(int(cid))
+    if not ch:
+        return
+    embed = discord.Embed(
+        title=f"👋 {member.display_name} has left the server.",
+        description=f"We now have **{member.guild.member_count}** members.",
+        color=discord.Color.red()
+    )
+    embed.set_thumbnail(url=member.display_avatar.url)
+    await ch.send(embed=embed)
+
+# ═════════════════════════════════════════════════════════════════════════════
+# SECTION 1 — GENERAL
+# ═════════════════════════════════════════════════════════════════════════════
 
 @bot.tree.command(name="ping", description="Check the bot's speed")
 async def ping(interaction: discord.Interaction):
-    await interaction.response.send_message(f'🏓 Pong! Latency: {round(bot.latency * 1000)}ms')
+    await interaction.response.send_message(f"🏓 Pong! Latency: **{round(bot.latency * 1000)}ms**")
 
 @bot.tree.command(name="hello", description="Get a friendly greeting")
 async def hello(interaction: discord.Interaction):
-    await interaction.response.send_message(f'Hello {interaction.user.mention}! Hope you are having a great day! 😊')
+    await interaction.response.send_message(f"Hello {interaction.user.mention}! Hope you are having a great day! 😊")
 
 @bot.tree.command(name="bye", description="Say goodbye")
 async def bye(interaction: discord.Interaction):
-    await interaction.response.send_message(f'Bye {interaction.user.mention}! Hope you have a wonderful day!')
+    await interaction.response.send_message(f"Bye {interaction.user.mention}! Hope you have a wonderful day!")
 
-# ── Dice rolling ──────────────────────────────────────────────────────────────
+@bot.tree.command(name="botinfo", description="Show info about this bot")
+async def botinfo(interaction: discord.Interaction):
+    embed = discord.Embed(title="🤖 Bot Info", color=discord.Color.blurple())
+    embed.add_field(name="Name", value=bot.user.name, inline=True)
+    embed.add_field(name="Servers", value=str(len(bot.guilds)), inline=True)
+    embed.add_field(name="Latency", value=f"{round(bot.latency*1000)}ms", inline=True)
+    embed.add_field(name="Commands", value="30+", inline=True)
+    embed.set_thumbnail(url=bot.user.display_avatar.url)
+    await interaction.response.send_message(embed=embed)
 
-@bot.tree.command(name="roll", description="Roll dice — e.g. 2d6 rolls two six-sided dice")
-@app_commands.describe(dice="Dice to roll in NdN format (e.g. 1d20, 2d6). Defaults to 1d6.")
+# ═════════════════════════════════════════════════════════════════════════════
+# SECTION 2 — INFO
+# ═════════════════════════════════════════════════════════════════════════════
+
+@bot.tree.command(name="userinfo", description="Show detailed info about a member")
+@app_commands.describe(member="The member to look up (defaults to you)")
+async def userinfo(interaction: discord.Interaction, member: discord.Member = None):
+    member = member or interaction.user
+    gid = str(interaction.guild.id)
+    uid = str(member.id)
+    warn_count = len(warnings_data.get(gid, {}).get(uid, []))
+    roles = [r.mention for r in member.roles if r.name != "@everyone"]
+    embed = discord.Embed(title=f"👤 {member.display_name}", color=member.color)
+    embed.set_thumbnail(url=member.display_avatar.url)
+    embed.add_field(name="Username", value=str(member), inline=True)
+    embed.add_field(name="ID", value=member.id, inline=True)
+    embed.add_field(name="Bot?", value="Yes" if member.bot else "No", inline=True)
+    embed.add_field(name="Account Created", value=member.created_at.strftime("%b %d, %Y"), inline=True)
+    embed.add_field(name="Joined Server", value=member.joined_at.strftime("%b %d, %Y") if member.joined_at else "Unknown", inline=True)
+    embed.add_field(name="Warnings", value=str(warn_count), inline=True)
+    embed.add_field(name=f"Roles ({len(roles)})", value=" ".join(roles) if roles else "None", inline=False)
+    embed.set_footer(text=f"Requested by {interaction.user.display_name}")
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="serverinfo", description="Show info about this server")
+async def serverinfo(interaction: discord.Interaction):
+    g = interaction.guild
+    embed = discord.Embed(title=f"🏠 {g.name}", color=discord.Color.blurple())
+    if g.icon:
+        embed.set_thumbnail(url=g.icon.url)
+    embed.add_field(name="Owner", value=g.owner.mention if g.owner else "Unknown", inline=True)
+    embed.add_field(name="Members", value=str(g.member_count), inline=True)
+    embed.add_field(name="Channels", value=str(len(g.channels)), inline=True)
+    embed.add_field(name="Roles", value=str(len(g.roles)), inline=True)
+    embed.add_field(name="Boosts", value=str(g.premium_subscription_count), inline=True)
+    embed.add_field(name="Created", value=g.created_at.strftime("%b %d, %Y"), inline=True)
+    embed.add_field(name="Verification", value=str(g.verification_level).title(), inline=True)
+    embed.set_footer(text=f"ID: {g.id}")
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="avatar", description="Show a member's avatar")
+@app_commands.describe(member="The member whose avatar to show")
+async def avatar(interaction: discord.Interaction, member: discord.Member = None):
+    member = member or interaction.user
+    embed = discord.Embed(title=f"{member.display_name}'s Avatar", color=discord.Color.blurple())
+    embed.set_image(url=member.display_avatar.url)
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="roleinfo", description="Show info about a role")
+@app_commands.describe(role="The role to inspect")
+async def roleinfo(interaction: discord.Interaction, role: discord.Role):
+    embed = discord.Embed(title=f"🎭 Role: {role.name}", color=role.color)
+    embed.add_field(name="ID", value=role.id, inline=True)
+    embed.add_field(name="Members", value=str(len(role.members)), inline=True)
+    embed.add_field(name="Mentionable", value="Yes" if role.mentionable else "No", inline=True)
+    embed.add_field(name="Hoisted", value="Yes" if role.hoist else "No", inline=True)
+    embed.add_field(name="Created", value=role.created_at.strftime("%b %d, %Y"), inline=True)
+    embed.add_field(name="Position", value=str(role.position), inline=True)
+    await interaction.response.send_message(embed=embed)
+
+# ═════════════════════════════════════════════════════════════════════════════
+# SECTION 3 — POLLS & DICE
+# ═════════════════════════════════════════════════════════════════════════════
+
+@bot.tree.command(name="roll", description="Roll dice — e.g. 2d6")
+@app_commands.describe(dice="Dice in NdN format (e.g. 2d6, 1d20). Defaults to 1d6.")
 async def roll(interaction: discord.Interaction, dice: str = "1d6"):
     try:
         parts = dice.lower().split("d")
@@ -89,289 +186,573 @@ async def roll(interaction: discord.Interaction, dice: str = "1d6"):
         if count < 1 or count > 100 or sides < 2 or sides > 1000:
             raise ValueError
     except (ValueError, IndexError):
-        await interaction.response.send_message("❌ Invalid format. Use NdN, e.g. `2d6` or `1d20`.", ephemeral=True)
+        await interaction.response.send_message("❌ Invalid format. Use NdN e.g. `2d6`.", ephemeral=True)
         return
-
     rolls = [random.randint(1, sides) for _ in range(count)]
     total = sum(rolls)
     rolls_str = ", ".join(str(r) for r in rolls)
     if count == 1:
-        await interaction.response.send_message(f'🎲 Rolled **d{sides}**: **{total}**')
+        await interaction.response.send_message(f"🎲 Rolled **d{sides}**: **{total}**")
     else:
-        await interaction.response.send_message(f'🎲 Rolled **{dice}**: [{rolls_str}] → Total: **{total}**')
-
-# ── Polls ─────────────────────────────────────────────────────────────────────
+        await interaction.response.send_message(f"🎲 Rolled **{dice}**: [{rolls_str}] → Total: **{total}**")
 
 @bot.tree.command(name="poll", description="Create a quick yes/no poll")
-@app_commands.describe(question="The question to ask the server")
+@app_commands.describe(question="The question to ask")
 async def poll(interaction: discord.Interaction, question: str):
-    embed = discord.Embed(
-        title="📊 Poll",
-        description=question,
-        color=discord.Color.blurple()
-    )
+    embed = discord.Embed(title="📊 Poll", description=question, color=discord.Color.blurple())
     embed.set_footer(text=f"Asked by {interaction.user.display_name}")
     await interaction.response.send_message(embed=embed)
-    message = await interaction.original_response()
-    await message.add_reaction("👍")
-    await message.add_reaction("👎")
+    msg = await interaction.original_response()
+    await msg.add_reaction("👍")
+    await msg.add_reaction("👎")
 
 @bot.tree.command(name="poll_choice", description="Create a poll with up to 4 custom options")
-@app_commands.describe(
-    question="The question to ask",
-    option1="First option",
-    option2="Second option",
-    option3="Third option (optional)",
-    option4="Fourth option (optional)"
-)
-async def poll_choice(
-    interaction: discord.Interaction,
-    question: str,
-    option1: str,
-    option2: str,
-    option3: str = None,
-    option4: str = None
-):
-    emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣"]
+@app_commands.describe(question="The question", option1="Option 1", option2="Option 2",
+                        option3="Option 3 (optional)", option4="Option 4 (optional)")
+async def poll_choice(interaction: discord.Interaction, question: str, option1: str, option2: str,
+                       option3: str = None, option4: str = None):
+    emojis = ["1️⃣","2️⃣","3️⃣","4️⃣"]
     options = [o for o in [option1, option2, option3, option4] if o]
-    description = "\n".join(f"{emojis[i]} {opt}" for i, opt in enumerate(options))
-    embed = discord.Embed(
-        title=f"📊 {question}",
-        description=description,
-        color=discord.Color.blurple()
-    )
+    desc = "\n".join(f"{emojis[i]} {o}" for i, o in enumerate(options))
+    embed = discord.Embed(title=f"📊 {question}", description=desc, color=discord.Color.blurple())
     embed.set_footer(text=f"Asked by {interaction.user.display_name}")
     await interaction.response.send_message(embed=embed)
-    message = await interaction.original_response()
+    msg = await interaction.original_response()
     for i in range(len(options)):
-        await message.add_reaction(emojis[i])
+        await msg.add_reaction(emojis[i])
 
-# ── Owner-only check ──────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════
+# SECTION 4 — WELCOME SYSTEM (owner only)
+# ═════════════════════════════════════════════════════════════════════════════
 
-def is_owner(interaction: discord.Interaction) -> bool:
-    return interaction.user == interaction.guild.owner
-
-# ── Welcome setup commands (owner only) ──────────────────────────────────────
-
-@bot.tree.command(name="setwelcome", description="Set the channel where welcome messages are sent (owner only)")
-@app_commands.describe(channel="The channel to send welcome messages in")
+@bot.tree.command(name="setwelcome", description="Set the channel for welcome/leave messages (owner only)")
+@app_commands.describe(channel="The channel to use")
 @app_commands.check(is_owner)
 async def setwelcome(interaction: discord.Interaction, channel: discord.TextChannel):
     welcome_channels[str(interaction.guild.id)] = str(channel.id)
     save_json(WELCOME_FILE, welcome_channels)
-    await interaction.response.send_message(f'✅ Welcome messages will now be sent in {channel.mention}.')
+    await interaction.response.send_message(f"✅ Welcome messages will be sent in {channel.mention}.")
 
-@bot.tree.command(name="clearwelcome", description="Disable welcome messages for this server (owner only)")
+@bot.tree.command(name="clearwelcome", description="Disable welcome messages (owner only)")
 @app_commands.check(is_owner)
 async def clearwelcome(interaction: discord.Interaction):
     welcome_channels.pop(str(interaction.guild.id), None)
     save_json(WELCOME_FILE, welcome_channels)
-    await interaction.response.send_message("✅ Welcome messages have been disabled.")
+    await interaction.response.send_message("✅ Welcome messages disabled.")
 
-@bot.tree.command(name="welcometest", description="Preview what the welcome message looks like (owner only)")
+@bot.tree.command(name="welcometest", description="Preview the welcome message (owner only)")
 @app_commands.check(is_owner)
 async def welcometest(interaction: discord.Interaction):
-    member = interaction.user
+    m = interaction.user
     embed = discord.Embed(
         title=f"👋 Welcome to {interaction.guild.name}!",
-        description=f"Hey {member.mention}, glad you're here! You are member **#{interaction.guild.member_count}**.",
+        description=f"Hey {m.mention}, glad you're here! You are member **#{interaction.guild.member_count}**.",
         color=discord.Color.green()
     )
-    embed.set_thumbnail(url=member.display_avatar.url)
+    embed.set_thumbnail(url=m.display_avatar.url)
     embed.set_footer(text=f"Joined • {datetime.datetime.now().strftime('%B %d, %Y')}")
-    await interaction.response.send_message("Here's a preview of the welcome message:", embed=embed, ephemeral=True)
+    await interaction.response.send_message("Preview:", embed=embed, ephemeral=True)
 
-# ── Moderation (server owner only) ───────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════
+# SECTION 5 — MODERATION (owner only)
+# ═════════════════════════════════════════════════════════════════════════════
 
-@bot.tree.command(name="kick", description="Kick a member from the server (owner only)")
-@app_commands.describe(member="The member to kick", reason="Reason for the kick")
+@bot.tree.command(name="kick", description="Kick a member (owner only)")
+@app_commands.describe(member="Member to kick", reason="Reason")
 @app_commands.check(is_owner)
 async def kick(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided"):
     if member == interaction.user:
-        await interaction.response.send_message("❌ You can't kick yourself.", ephemeral=True)
-        return
+        return await interaction.response.send_message("❌ Can't kick yourself.", ephemeral=True)
     if member.top_role >= interaction.guild.me.top_role:
-        await interaction.response.send_message("❌ I don't have permission to kick that member.", ephemeral=True)
-        return
+        return await interaction.response.send_message("❌ I can't kick that member.", ephemeral=True)
     await member.kick(reason=reason)
-    await interaction.response.send_message(f'👢 **{member.display_name}** has been kicked. Reason: {reason}')
+    await interaction.response.send_message(f"👢 **{member.display_name}** kicked. Reason: {reason}")
 
-@bot.tree.command(name="ban", description="Ban a member from the server (owner only)")
-@app_commands.describe(member="The member to ban", reason="Reason for the ban")
+@bot.tree.command(name="ban", description="Ban a member (owner only)")
+@app_commands.describe(member="Member to ban", reason="Reason")
 @app_commands.check(is_owner)
 async def ban(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided"):
     if member == interaction.user:
-        await interaction.response.send_message("❌ You can't ban yourself.", ephemeral=True)
-        return
+        return await interaction.response.send_message("❌ Can't ban yourself.", ephemeral=True)
     if member.top_role >= interaction.guild.me.top_role:
-        await interaction.response.send_message("❌ I don't have permission to ban that member.", ephemeral=True)
-        return
+        return await interaction.response.send_message("❌ I can't ban that member.", ephemeral=True)
+    try:
+        await member.send(f"🔨 You have been banned from **{interaction.guild.name}**. Reason: {reason}")
+    except discord.Forbidden:
+        pass
     await member.ban(reason=reason)
-    await interaction.response.send_message(f'🔨 **{member.display_name}** has been banned. Reason: {reason}')
+    await interaction.response.send_message(f"🔨 **{member.display_name}** banned. Reason: {reason}")
 
-@bot.tree.command(name="unban", description="Unban a user by their ID (owner only)")
-@app_commands.describe(user_id="The Discord user ID to unban")
+@bot.tree.command(name="softban", description="Ban then immediately unban a member to delete their messages (owner only)")
+@app_commands.describe(member="Member to softban", reason="Reason")
+@app_commands.check(is_owner)
+async def softban(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided"):
+    if member.top_role >= interaction.guild.me.top_role:
+        return await interaction.response.send_message("❌ I can't softban that member.", ephemeral=True)
+    await member.ban(reason=f"Softban: {reason}", delete_message_days=7)
+    await interaction.guild.unban(member, reason="Softban unban")
+    await interaction.response.send_message(f"🧹 **{member.display_name}** softbanned (messages deleted, not permanently banned).")
+
+@bot.tree.command(name="unban", description="Unban a user by ID (owner only)")
+@app_commands.describe(user_id="Discord user ID")
 @app_commands.check(is_owner)
 async def unban(interaction: discord.Interaction, user_id: str):
     try:
         uid = int(user_id)
     except ValueError:
-        await interaction.response.send_message("❌ Please provide a valid numeric user ID.", ephemeral=True)
-        return
+        return await interaction.response.send_message("❌ Invalid ID.", ephemeral=True)
     try:
         user = await bot.fetch_user(uid)
         await interaction.guild.unban(user)
-        await interaction.response.send_message(f'✅ **{user.name}** has been unbanned.')
+        await interaction.response.send_message(f"✅ **{user.name}** unbanned.")
     except discord.NotFound:
-        await interaction.response.send_message("❌ That user is not banned or doesn't exist.", ephemeral=True)
+        await interaction.response.send_message("❌ User not found or not banned.", ephemeral=True)
 
-@bot.tree.command(name="timeout", description="Timeout a member temporarily (owner only)")
-@app_commands.describe(member="The member to timeout", minutes="Duration in minutes (max 40320 = 4 weeks)")
+@bot.tree.command(name="banlist", description="Show all banned users (owner only)")
+@app_commands.check(is_owner)
+async def banlist(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    bans = [entry async for entry in interaction.guild.bans()]
+    if not bans:
+        return await interaction.followup.send("✅ No banned users.", ephemeral=True)
+    lines = [f"**{e.user}** — {e.reason or 'No reason'}" for e in bans[:20]]
+    embed = discord.Embed(title=f"🔨 Ban List ({len(bans)} total)", description="\n".join(lines), color=discord.Color.red())
+    if len(bans) > 20:
+        embed.set_footer(text=f"Showing 20 of {len(bans)}")
+    await interaction.followup.send(embed=embed, ephemeral=True)
+
+@bot.tree.command(name="timeout", description="Timeout a member (owner only)")
+@app_commands.describe(member="Member to timeout", minutes="Duration in minutes (1–40320)")
 @app_commands.check(is_owner)
 async def timeout(interaction: discord.Interaction, member: discord.Member, minutes: int = 5):
     if minutes < 1 or minutes > 40320:
-        await interaction.response.send_message("❌ Duration must be between 1 and 40320 minutes.", ephemeral=True)
-        return
-    duration = datetime.timedelta(minutes=minutes)
-    await member.timeout(duration)
-    await interaction.response.send_message(f'⏱️ **{member.display_name}** has been timed out for {minutes} minute(s).')
+        return await interaction.response.send_message("❌ Duration must be 1–40320 minutes.", ephemeral=True)
+    await member.timeout(datetime.timedelta(minutes=minutes))
+    await interaction.response.send_message(f"⏱️ **{member.display_name}** timed out for {minutes} minute(s).")
 
-@bot.tree.command(name="clear", description="Delete a number of messages from this channel (owner only)")
+@bot.tree.command(name="untimeout", description="Remove a timeout from a member (owner only)")
+@app_commands.describe(member="Member to un-timeout")
+@app_commands.check(is_owner)
+async def untimeout(interaction: discord.Interaction, member: discord.Member):
+    await member.timeout(None)
+    await interaction.response.send_message(f"✅ Timeout removed from **{member.display_name}**.")
+
+@bot.tree.command(name="clear", description="Delete messages from this channel (owner only)")
 @app_commands.describe(amount="Number of messages to delete (1–100)")
 @app_commands.check(is_owner)
 async def clear(interaction: discord.Interaction, amount: int = 10):
     if amount < 1 or amount > 100:
-        await interaction.response.send_message("❌ Amount must be between 1 and 100.", ephemeral=True)
-        return
+        return await interaction.response.send_message("❌ Amount must be 1–100.", ephemeral=True)
     await interaction.response.defer(ephemeral=True)
     deleted = await interaction.channel.purge(limit=amount)
-    await interaction.followup.send(f'🧹 Deleted {len(deleted)} message(s).', ephemeral=True)
+    await interaction.followup.send(f"🧹 Deleted {len(deleted)} message(s).", ephemeral=True)
 
-# ── Warning system (owner only) ───────────────────────────────────────────────
+@bot.tree.command(name="slowmode", description="Set slowmode on this channel (owner only)")
+@app_commands.describe(seconds="Slowmode delay in seconds (0 to disable, max 21600)")
+@app_commands.check(is_owner)
+async def slowmode(interaction: discord.Interaction, seconds: int = 0):
+    if seconds < 0 or seconds > 21600:
+        return await interaction.response.send_message("❌ Must be 0–21600 seconds.", ephemeral=True)
+    await interaction.channel.edit(slowmode_delay=seconds)
+    if seconds == 0:
+        await interaction.response.send_message("✅ Slowmode disabled.")
+    else:
+        await interaction.response.send_message(f"🐢 Slowmode set to **{seconds}** second(s).")
+
+@bot.tree.command(name="lock", description="Lock this channel so members can't send messages (owner only)")
+@app_commands.describe(reason="Reason for locking")
+@app_commands.check(is_owner)
+async def lock(interaction: discord.Interaction, reason: str = "No reason provided"):
+    overwrite = interaction.channel.overwrites_for(interaction.guild.default_role)
+    overwrite.send_messages = False
+    await interaction.channel.set_permissions(interaction.guild.default_role, overwrite=overwrite)
+    embed = discord.Embed(title="🔒 Channel Locked", description=f"Reason: {reason}", color=discord.Color.red())
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="unlock", description="Unlock this channel (owner only)")
+@app_commands.check(is_owner)
+async def unlock(interaction: discord.Interaction):
+    overwrite = interaction.channel.overwrites_for(interaction.guild.default_role)
+    overwrite.send_messages = None
+    await interaction.channel.set_permissions(interaction.guild.default_role, overwrite=overwrite)
+    embed = discord.Embed(title="🔓 Channel Unlocked", color=discord.Color.green())
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="nick", description="Change a member's nickname (owner only)")
+@app_commands.describe(member="The member", nickname="New nickname (leave blank to reset)")
+@app_commands.check(is_owner)
+async def nick(interaction: discord.Interaction, member: discord.Member, nickname: str = None):
+    await member.edit(nick=nickname)
+    if nickname:
+        await interaction.response.send_message(f"✅ Nickname changed to **{nickname}** for {member.mention}.")
+    else:
+        await interaction.response.send_message(f"✅ Nickname reset for {member.mention}.")
+
+@bot.tree.command(name="addrole", description="Add a role to a member (owner only)")
+@app_commands.describe(member="The member", role="The role to add")
+@app_commands.check(is_owner)
+async def addrole(interaction: discord.Interaction, member: discord.Member, role: discord.Role):
+    if role in member.roles:
+        return await interaction.response.send_message(f"❌ {member.mention} already has {role.mention}.", ephemeral=True)
+    await member.add_roles(role)
+    await interaction.response.send_message(f"✅ Added {role.mention} to {member.mention}.")
+
+@bot.tree.command(name="removerole", description="Remove a role from a member (owner only)")
+@app_commands.describe(member="The member", role="The role to remove")
+@app_commands.check(is_owner)
+async def removerole(interaction: discord.Interaction, member: discord.Member, role: discord.Role):
+    if role not in member.roles:
+        return await interaction.response.send_message(f"❌ {member.mention} doesn't have {role.mention}.", ephemeral=True)
+    await member.remove_roles(role)
+    await interaction.response.send_message(f"✅ Removed {role.mention} from {member.mention}.")
+
+@bot.tree.command(name="announce", description="Send an announcement embed (owner only)")
+@app_commands.describe(message="The announcement text", channel="Channel to send it in (defaults to current)")
+@app_commands.check(is_owner)
+async def announce(interaction: discord.Interaction, message: str, channel: discord.TextChannel = None):
+    ch = channel or interaction.channel
+    embed = discord.Embed(title="📢 Announcement", description=message, color=discord.Color.gold())
+    embed.set_footer(text=f"Posted by {interaction.user.display_name} • {datetime.datetime.now().strftime('%B %d, %Y')}")
+    await ch.send(embed=embed)
+    await interaction.response.send_message(f"✅ Announcement sent in {ch.mention}.", ephemeral=True)
+
+# ═════════════════════════════════════════════════════════════════════════════
+# SECTION 6 — WARNING SYSTEM (owner only)
+# ═════════════════════════════════════════════════════════════════════════════
 
 @bot.tree.command(name="setwarnrole", description="Set the role assigned to warned members (owner only)")
-@app_commands.describe(role="The role to give members when they are warned")
+@app_commands.describe(role="The warning role")
 @app_commands.check(is_owner)
 async def setwarnrole(interaction: discord.Interaction, role: discord.Role):
     warn_roles[str(interaction.guild.id)] = str(role.id)
     save_json(WARN_ROLES_FILE, warn_roles)
-    await interaction.response.send_message(f'✅ Warned members will receive the {role.mention} role.')
+    await interaction.response.send_message(f"✅ Warned members will receive {role.mention}.")
 
 @bot.tree.command(name="warn", description="Warn a member (owner only)")
-@app_commands.describe(member="The member to warn", reason="Reason for the warning")
+@app_commands.describe(member="Member to warn", reason="Reason")
 @app_commands.check(is_owner)
 async def warn(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided"):
     if member.bot:
-        await interaction.response.send_message("❌ You can't warn a bot.", ephemeral=True)
-        return
+        return await interaction.response.send_message("❌ Can't warn a bot.", ephemeral=True)
     if member == interaction.user:
-        await interaction.response.send_message("❌ You can't warn yourself.", ephemeral=True)
-        return
-
-    guild_id = str(interaction.guild.id)
-    user_id  = str(member.id)
-
-    warnings_data.setdefault(guild_id, {}).setdefault(user_id, [])
-    warnings_data[guild_id][user_id].append({
+        return await interaction.response.send_message("❌ Can't warn yourself.", ephemeral=True)
+    gid, uid = str(interaction.guild.id), str(member.id)
+    warnings_data.setdefault(gid, {}).setdefault(uid, [])
+    warnings_data[gid][uid].append({
         "reason": reason,
         "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
         "by": str(interaction.user)
     })
     save_json(WARNINGS_FILE, warnings_data)
-    count = len(warnings_data[guild_id][user_id])
-
-    role_id = warn_roles.get(guild_id)
+    count = len(warnings_data[gid][uid])
     role_text = ""
-    if role_id:
-        warn_role = interaction.guild.get_role(int(role_id))
-        if warn_role and warn_role not in member.roles:
+    rid = warn_roles.get(gid)
+    if rid:
+        wr = interaction.guild.get_role(int(rid))
+        if wr and wr not in member.roles:
             try:
-                await member.add_roles(warn_role, reason=f"Warned by {interaction.user}")
-                role_text = f" The **{warn_role.name}** role has been assigned."
+                await member.add_roles(wr)
+                role_text = f" Role **{wr.name}** assigned."
             except discord.Forbidden:
-                role_text = " ⚠️ Couldn't assign the warn role (missing permissions)."
-
-    embed = discord.Embed(
-        title="⚠️ Member Warned",
-        color=discord.Color.orange()
-    )
+                role_text = " ⚠️ Couldn't assign warn role."
+    embed = discord.Embed(title="⚠️ Member Warned", color=discord.Color.orange())
     embed.add_field(name="Member", value=member.mention, inline=True)
-    embed.add_field(name="Total Warnings", value=str(count), inline=True)
+    embed.add_field(name="Warnings", value=str(count), inline=True)
     embed.add_field(name="Reason", value=reason, inline=False)
-    embed.set_footer(text=f"Warned by {interaction.user.display_name}")
+    embed.set_footer(text=f"By {interaction.user.display_name}")
     await interaction.response.send_message(content=role_text.strip() or None, embed=embed)
-
     try:
-        await member.send(
-            f"⚠️ You have been warned in **{interaction.guild.name}**.\n"
-            f"**Reason:** {reason}\n"
-            f"**Total warnings:** {count}"
-        )
+        await member.send(f"⚠️ You were warned in **{interaction.guild.name}**.\n**Reason:** {reason}\n**Total warnings:** {count}")
     except discord.Forbidden:
         pass
 
-@bot.tree.command(name="warnings", description="Check how many warnings a member has")
+@bot.tree.command(name="warnings", description="View a member's warnings")
 @app_commands.describe(member="The member to check")
 async def warnings(interaction: discord.Interaction, member: discord.Member):
-    guild_id = str(interaction.guild.id)
-    user_id  = str(member.id)
-    entries  = warnings_data.get(guild_id, {}).get(user_id, [])
-
+    gid, uid = str(interaction.guild.id), str(member.id)
+    entries = warnings_data.get(gid, {}).get(uid, [])
     if not entries:
-        await interaction.response.send_message(f'✅ **{member.display_name}** has no warnings.', ephemeral=True)
-        return
-
-    embed = discord.Embed(
-        title=f"⚠️ Warnings for {member.display_name}",
-        color=discord.Color.orange()
-    )
+        return await interaction.response.send_message(f"✅ **{member.display_name}** has no warnings.", ephemeral=True)
+    embed = discord.Embed(title=f"⚠️ Warnings for {member.display_name}", color=discord.Color.orange())
     for i, w in enumerate(entries, 1):
-        embed.add_field(
-            name=f"Warning #{i} — {w['timestamp']}",
-            value=f"**Reason:** {w['reason']}\n**By:** {w['by']}",
-            inline=False
-        )
+        embed.add_field(name=f"#{i} — {w['timestamp']}", value=f"**Reason:** {w['reason']}\n**By:** {w['by']}", inline=False)
     embed.set_thumbnail(url=member.display_avatar.url)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
-@bot.tree.command(name="clearwarnings", description="Clear all warnings for a member and remove the warn role (owner only)")
-@app_commands.describe(member="The member to clear warnings for")
+@bot.tree.command(name="clearwarnings", description="Clear all warnings for a member (owner only)")
+@app_commands.describe(member="Member to clear")
 @app_commands.check(is_owner)
 async def clearwarnings(interaction: discord.Interaction, member: discord.Member):
-    guild_id = str(interaction.guild.id)
-    user_id  = str(member.id)
-
-    warnings_data.get(guild_id, {}).pop(user_id, None)
+    gid, uid = str(interaction.guild.id), str(member.id)
+    warnings_data.get(gid, {}).pop(uid, None)
     save_json(WARNINGS_FILE, warnings_data)
-
-    role_id = warn_roles.get(guild_id)
+    rid = warn_roles.get(gid)
     role_text = ""
-    if role_id:
-        warn_role = interaction.guild.get_role(int(role_id))
-        if warn_role and warn_role in member.roles:
+    if rid:
+        wr = interaction.guild.get_role(int(rid))
+        if wr and wr in member.roles:
             try:
-                await member.remove_roles(warn_role, reason=f"Warnings cleared by {interaction.user}")
-                role_text = f" The **{warn_role.name}** role has been removed."
+                await member.remove_roles(wr)
+                role_text = f" Role **{wr.name}** removed."
             except discord.Forbidden:
-                role_text = " ⚠️ Couldn't remove the warn role (missing permissions)."
+                role_text = " ⚠️ Couldn't remove warn role."
+    await interaction.response.send_message(f"✅ Warnings cleared for **{member.display_name}**.{role_text}")
 
-    await interaction.response.send_message(
-        f'✅ All warnings cleared for **{member.display_name}**.{role_text}'
-    )
+# ═════════════════════════════════════════════════════════════════════════════
+# SECTION 7 — ENTERTAINMENT
+# ═════════════════════════════════════════════════════════════════════════════
 
-# ── Error handler ─────────────────────────────────────────────────────────────
+@bot.tree.command(name="coinflip", description="Flip a coin")
+async def coinflip(interaction: discord.Interaction):
+    result = random.choice(["Heads 🪙", "Tails 🪙"])
+    await interaction.response.send_message(f"**{result}!**")
+
+@bot.tree.command(name="8ball", description="Ask the magic 8-ball a question")
+@app_commands.describe(question="Your yes/no question")
+async def eightball(interaction: discord.Interaction, question: str):
+    responses = [
+        "It is certain.","It is decidedly so.","Without a doubt.","Yes, definitely.",
+        "You may rely on it.","As I see it, yes.","Most likely.","Outlook good.",
+        "Yes.","Signs point to yes.","Reply hazy, try again.","Ask again later.",
+        "Better not tell you now.","Cannot predict now.","Concentrate and ask again.",
+        "Don't count on it.","My reply is no.","My sources say no.",
+        "Outlook not so good.","Very doubtful."
+    ]
+    embed = discord.Embed(title="🎱 Magic 8-Ball", color=discord.Color.dark_purple())
+    embed.add_field(name="Question", value=question, inline=False)
+    embed.add_field(name="Answer", value=random.choice(responses), inline=False)
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="joke", description="Get a random joke")
+async def joke(interaction: discord.Interaction):
+    jokes = [
+        ("Why don't scientists trust atoms?", "Because they make up everything!"),
+        ("Why did the scarecrow win an award?", "Because he was outstanding in his field!"),
+        ("I told my wife she was drawing her eyebrows too high.", "She looked surprised."),
+        ("Why don't eggs tell jokes?", "They'd crack each other up!"),
+        ("What do you call a fake noodle?", "An impasta!"),
+        ("Why can't you give Elsa a balloon?", "Because she'll let it go!"),
+        ("What do you call cheese that isn't yours?", "Nacho cheese!"),
+        ("Why did the bicycle fall over?", "Because it was two-tired!"),
+        ("What do you call a sleeping dinosaur?", "A dino-snore!"),
+        ("Why did the math book look so sad?", "It had too many problems."),
+        ("What do you call a bear with no teeth?", "A gummy bear!"),
+        ("Why did the golfer bring an extra pair of pants?", "In case he got a hole in one!"),
+        ("How do you organize a space party?", "You planet!"),
+        ("What's brown and sticky?", "A stick!"),
+        ("Why did the tomato turn red?", "Because it saw the salad dressing!"),
+    ]
+    setup, punchline = random.choice(jokes)
+    embed = discord.Embed(title="😂 Joke Time", color=discord.Color.yellow())
+    embed.add_field(name="Setup", value=setup, inline=False)
+    embed.add_field(name="Punchline", value=punchline, inline=False)
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="fact", description="Get a random fun fact")
+async def fact(interaction: discord.Interaction):
+    facts = [
+        "Honey never expires. Archaeologists have found 3,000-year-old honey in Egyptian tombs.",
+        "A group of flamingos is called a flamboyance.",
+        "Crows can recognize human faces and hold grudges against people who have wronged them.",
+        "Octopuses have three hearts, nine brains, and blue blood.",
+        "Bananas are berries, but strawberries aren't.",
+        "There are more possible iterations of a game of chess than there are atoms in the observable universe.",
+        "A day on Venus is longer than a year on Venus.",
+        "Sharks are older than trees. They've existed for around 450 million years.",
+        "Cleopatra lived closer in time to the Moon landing than to the construction of the Great Pyramid.",
+        "A bolt of lightning is five times hotter than the surface of the sun.",
+        "The human body contains enough carbon to make about 9,000 pencils.",
+        "Wombat poop is cube-shaped — the only animal to produce cube feces.",
+        "There is enough DNA in the human body to stretch from the sun to Pluto and back 17 times.",
+        "The world's oldest known living tree is over 5,000 years old.",
+        "Butterflies taste with their feet.",
+        "A group of owls is called a parliament.",
+        "It would take about 100,000 years to travel across the Milky Way at the speed of light.",
+    ]
+    embed = discord.Embed(title="🧠 Fun Fact", description=random.choice(facts), color=discord.Color.teal())
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="rps", description="Play Rock Paper Scissors against the bot")
+@app_commands.describe(choice="Your choice")
+@app_commands.choices(choice=[
+    app_commands.Choice(name="Rock 🪨", value="rock"),
+    app_commands.Choice(name="Paper 📄", value="paper"),
+    app_commands.Choice(name="Scissors ✂️", value="scissors"),
+])
+async def rps(interaction: discord.Interaction, choice: app_commands.Choice[str]):
+    options = ["rock","paper","scissors"]
+    emojis = {"rock":"🪨","paper":"📄","scissors":"✂️"}
+    bot_choice = random.choice(options)
+    wins = {"rock":"scissors","paper":"rock","scissors":"paper"}
+    if choice.value == bot_choice:
+        result = "It's a tie! 🤝"
+        color = discord.Color.yellow()
+    elif wins[choice.value] == bot_choice:
+        result = "You win! 🎉"
+        color = discord.Color.green()
+    else:
+        result = "I win! 😎"
+        color = discord.Color.red()
+    embed = discord.Embed(title="✂️ Rock Paper Scissors", color=color)
+    embed.add_field(name="Your choice", value=emojis[choice.value], inline=True)
+    embed.add_field(name="My choice", value=emojis[bot_choice], inline=True)
+    embed.add_field(name="Result", value=result, inline=False)
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="choose", description="Let the bot choose between options for you")
+@app_commands.describe(options="Comma-separated options e.g. pizza, sushi, tacos")
+async def choose(interaction: discord.Interaction, options: str):
+    choices = [o.strip() for o in options.split(",") if o.strip()]
+    if len(choices) < 2:
+        return await interaction.response.send_message("❌ Provide at least 2 comma-separated options.", ephemeral=True)
+    await interaction.response.send_message(f"🎯 I choose: **{random.choice(choices)}**")
+
+@bot.tree.command(name="rate", description="Let the bot rate something out of 10")
+@app_commands.describe(thing="What to rate")
+async def rate(interaction: discord.Interaction, thing: str):
+    score = random.randint(0, 10)
+    bar = "█" * score + "░" * (10 - score)
+    await interaction.response.send_message(f"📊 I rate **{thing}** a **{score}/10**\n`{bar}`")
+
+@bot.tree.command(name="ship", description="Check the compatibility between two members")
+@app_commands.describe(user1="First person", user2="Second person")
+async def ship(interaction: discord.Interaction, user1: discord.Member, user2: discord.Member):
+    score = random.randint(0, 100)
+    bar = "❤️" * (score // 10) + "🖤" * (10 - score // 10)
+    if score < 30:
+        verdict = "Not a great match 💔"
+    elif score < 60:
+        verdict = "There's potential! 💛"
+    elif score < 85:
+        verdict = "Great match! 💕"
+    else:
+        verdict = "Perfect match! 💞"
+    embed = discord.Embed(title="💘 Compatibility Check", color=discord.Color.pink())
+    embed.add_field(name="Couple", value=f"{user1.mention} + {user2.mention}", inline=False)
+    embed.add_field(name="Score", value=f"**{score}%** {bar}", inline=False)
+    embed.add_field(name="Verdict", value=verdict, inline=False)
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="roast", description="Roast a member (all in good fun!)")
+@app_commands.describe(member="Who to roast")
+async def roast(interaction: discord.Interaction, member: discord.Member):
+    roasts = [
+        f"{member.mention}, you're like a cloud. When you disappear, it's a beautiful day.",
+        f"I'd roast {member.mention} but my mom said I'm not allowed to burn trash.",
+        f"{member.mention}, you're proof that even evolution makes mistakes.",
+        f"Talking to {member.mention} is like reading a book with no words — pointless.",
+        f"{member.mention}, your Wi-Fi password is probably 'password123'.",
+        f"I've seen better comebacks than {member.mention} in a boomerang factory.",
+        f"{member.mention}, if brains were gasoline, you couldn't power a go-kart.",
+        f"The village called, {member.mention}. They want their idiot back.",
+        f"{member.mention}, you're not stupid — you just have bad luck thinking.",
+        f"I'd agree with {member.mention}, but then we'd both be wrong.",
+    ]
+    await interaction.response.send_message(random.choice(roasts))
+
+@bot.tree.command(name="compliment", description="Compliment a member")
+@app_commands.describe(member="Who to compliment")
+async def compliment(interaction: discord.Interaction, member: discord.Member):
+    compliments = [
+        f"{member.mention}, you light up every room you walk into! ✨",
+        f"{member.mention} is genuinely one of the kindest people here. 💛",
+        f"The server is way better because {member.mention} is in it. 🌟",
+        f"{member.mention}, your positive energy is contagious! 🌈",
+        f"{member.mention} is the kind of person who makes everyone feel welcome. 🤗",
+        f"If there was an award for being awesome, {member.mention} would win every time. 🏆",
+        f"{member.mention}, you're an absolute legend and don't let anyone tell you otherwise. 🔥",
+        f"The world needs more people like {member.mention}. Keep being amazing! 💪",
+    ]
+    await interaction.response.send_message(random.choice(compliments))
+
+@bot.tree.command(name="mock", description="Convert text to SpOnGeBoB mocking style")
+@app_commands.describe(text="Text to mock")
+async def mock(interaction: discord.Interaction, text: str):
+    result = "".join(c.upper() if i % 2 == 0 else c.lower() for i, c in enumerate(text))
+    await interaction.response.send_message(f"🧽 {result}")
+
+@bot.tree.command(name="reverse", description="Reverse some text")
+@app_commands.describe(text="Text to reverse")
+async def reverse(interaction: discord.Interaction, text: str):
+    await interaction.response.send_message(f"🔄 {text[::-1]}")
+
+@bot.tree.command(name="would_you_rather", description="Get a random would-you-rather question")
+async def would_you_rather(interaction: discord.Interaction):
+    questions = [
+        ("be able to fly", "be invisible"),
+        ("only eat pizza for a year", "only drink water for a year"),
+        ("have super strength", "have super speed"),
+        ("know when you're going to die", "know how you're going to die"),
+        ("always be 10 minutes late", "always be 20 minutes early"),
+        ("live without music", "live without TV/movies"),
+        ("be incredibly smart but poor", "be incredibly rich but average intelligence"),
+        ("never use social media again", "never watch Netflix again"),
+        ("have a rewind button for your life", "a pause button"),
+        ("speak every language", "play every musical instrument"),
+        ("fight 100 duck-sized horses", "one horse-sized duck"),
+        ("always have to sing instead of speak", "always have to dance instead of walk"),
+    ]
+    a, b = random.choice(questions)
+    embed = discord.Embed(title="🤔 Would You Rather...", color=discord.Color.purple())
+    embed.add_field(name="Option A", value=f"🅰️ {a.capitalize()}", inline=True)
+    embed.add_field(name="Option B", value=f"🅱️ {b.capitalize()}", inline=True)
+    await interaction.response.send_message(embed=embed)
+    msg = await interaction.original_response()
+    await msg.add_reaction("🅰️")
+    await msg.add_reaction("🅱️")
+
+@bot.tree.command(name="trivia", description="Get a random trivia question")
+async def trivia(interaction: discord.Interaction):
+    questions = [
+        ("What planet is known as the Red Planet?", "Mars"),
+        ("How many sides does a hexagon have?", "6"),
+        ("What is the capital of Japan?", "Tokyo"),
+        ("Who painted the Mona Lisa?", "Leonardo da Vinci"),
+        ("What is the chemical symbol for gold?", "Au"),
+        ("How many bones are in the adult human body?", "206"),
+        ("What is the largest ocean on Earth?", "Pacific Ocean"),
+        ("Who wrote Romeo and Juliet?", "William Shakespeare"),
+        ("What year did World War II end?", "1945"),
+        ("What is the speed of light (approx)?", "300,000 km/s"),
+        ("What language has the most native speakers in the world?", "Mandarin Chinese"),
+        ("What is the smallest planet in the solar system?", "Mercury"),
+    ]
+    q, a = random.choice(questions)
+    embed = discord.Embed(title="🧩 Trivia", description=q, color=discord.Color.orange())
+    embed.set_footer(text="Reply with your answer! The answer will be revealed shortly.")
+    await interaction.response.send_message(embed=embed)
+    await discord.utils.sleep_until(datetime.datetime.now() + datetime.timedelta(seconds=15))
+    reveal = discord.Embed(title="✅ Answer", description=f"**{a}**", color=discord.Color.green())
+    await interaction.followup.send(embed=reveal)
+
+@bot.tree.command(name="number_guess", description="Try to guess a number between 1 and 10")
+@app_commands.describe(guess="Your guess (1–10)")
+async def number_guess(interaction: discord.Interaction, guess: int):
+    if guess < 1 or guess > 10:
+        return await interaction.response.send_message("❌ Guess must be between 1 and 10.", ephemeral=True)
+    answer = random.randint(1, 10)
+    if guess == answer:
+        await interaction.response.send_message(f"🎉 Correct! The number was **{answer}**! You guessed it!")
+    else:
+        await interaction.response.send_message(f"❌ Wrong! The number was **{answer}**. Better luck next time!")
+
+# ═════════════════════════════════════════════════════════════════════════════
+# SECTION 8 — ERROR HANDLER
+# ═════════════════════════════════════════════════════════════════════════════
 
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
     if isinstance(error, app_commands.CheckFailure):
         await interaction.response.send_message("❌ Only the server owner can use this command.", ephemeral=True)
-    else:
+    elif not interaction.response.is_done():
         await interaction.response.send_message(f"❌ An error occurred: {error}", ephemeral=True)
 
-# ── Run ───────────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════
+# RUN
+# ═════════════════════════════════════════════════════════════════════════════
 
-token = os.environ.get('DISCORD_TOKEN')
+token = os.environ.get("DISCORD_TOKEN")
 if not token:
-    raise ValueError("DISCORD_TOKEN environment variable is not set. Add it to your secrets.")
+    raise ValueError("DISCORD_TOKEN is not set. Add it to your secrets.")
 
 bot.run(token)

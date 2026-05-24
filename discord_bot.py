@@ -7,18 +7,22 @@ from discord import app_commands
 from discord.ext import commands
 
 WELCOME_FILE = "welcome_channels.json"
+WARNINGS_FILE = "warnings.json"
+WARN_ROLES_FILE = "warn_roles.json"
 
-def load_welcome_channels():
-    if os.path.exists(WELCOME_FILE):
-        with open(WELCOME_FILE, "r") as f:
+def load_json(path):
+    if os.path.exists(path):
+        with open(path, "r") as f:
             return json.load(f)
     return {}
 
-def save_welcome_channels(data):
-    with open(WELCOME_FILE, "w") as f:
+def save_json(path, data):
+    with open(path, "w") as f:
         json.dump(data, f)
 
-welcome_channels = load_welcome_channels()
+welcome_channels = load_json(WELCOME_FILE)
+warnings_data   = load_json(WARNINGS_FILE)
+warn_roles      = load_json(WARN_ROLES_FILE)
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -154,14 +158,14 @@ def is_owner(interaction: discord.Interaction) -> bool:
 @app_commands.check(is_owner)
 async def setwelcome(interaction: discord.Interaction, channel: discord.TextChannel):
     welcome_channels[str(interaction.guild.id)] = str(channel.id)
-    save_welcome_channels(welcome_channels)
+    save_json(WELCOME_FILE, welcome_channels)
     await interaction.response.send_message(f'✅ Welcome messages will now be sent in {channel.mention}.')
 
 @bot.tree.command(name="clearwelcome", description="Disable welcome messages for this server (owner only)")
 @app_commands.check(is_owner)
 async def clearwelcome(interaction: discord.Interaction):
     welcome_channels.pop(str(interaction.guild.id), None)
-    save_welcome_channels(welcome_channels)
+    save_json(WELCOME_FILE, welcome_channels)
     await interaction.response.send_message("✅ Welcome messages have been disabled.")
 
 @bot.tree.command(name="welcometest", description="Preview what the welcome message looks like (owner only)")
@@ -242,6 +246,118 @@ async def clear(interaction: discord.Interaction, amount: int = 10):
     await interaction.response.defer(ephemeral=True)
     deleted = await interaction.channel.purge(limit=amount)
     await interaction.followup.send(f'🧹 Deleted {len(deleted)} message(s).', ephemeral=True)
+
+# ── Warning system (owner only) ───────────────────────────────────────────────
+
+@bot.tree.command(name="setwarnrole", description="Set the role assigned to warned members (owner only)")
+@app_commands.describe(role="The role to give members when they are warned")
+@app_commands.check(is_owner)
+async def setwarnrole(interaction: discord.Interaction, role: discord.Role):
+    warn_roles[str(interaction.guild.id)] = str(role.id)
+    save_json(WARN_ROLES_FILE, warn_roles)
+    await interaction.response.send_message(f'✅ Warned members will receive the {role.mention} role.')
+
+@bot.tree.command(name="warn", description="Warn a member (owner only)")
+@app_commands.describe(member="The member to warn", reason="Reason for the warning")
+@app_commands.check(is_owner)
+async def warn(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided"):
+    if member.bot:
+        await interaction.response.send_message("❌ You can't warn a bot.", ephemeral=True)
+        return
+    if member == interaction.user:
+        await interaction.response.send_message("❌ You can't warn yourself.", ephemeral=True)
+        return
+
+    guild_id = str(interaction.guild.id)
+    user_id  = str(member.id)
+
+    warnings_data.setdefault(guild_id, {}).setdefault(user_id, [])
+    warnings_data[guild_id][user_id].append({
+        "reason": reason,
+        "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "by": str(interaction.user)
+    })
+    save_json(WARNINGS_FILE, warnings_data)
+    count = len(warnings_data[guild_id][user_id])
+
+    role_id = warn_roles.get(guild_id)
+    role_text = ""
+    if role_id:
+        warn_role = interaction.guild.get_role(int(role_id))
+        if warn_role and warn_role not in member.roles:
+            try:
+                await member.add_roles(warn_role, reason=f"Warned by {interaction.user}")
+                role_text = f" The **{warn_role.name}** role has been assigned."
+            except discord.Forbidden:
+                role_text = " ⚠️ Couldn't assign the warn role (missing permissions)."
+
+    embed = discord.Embed(
+        title="⚠️ Member Warned",
+        color=discord.Color.orange()
+    )
+    embed.add_field(name="Member", value=member.mention, inline=True)
+    embed.add_field(name="Total Warnings", value=str(count), inline=True)
+    embed.add_field(name="Reason", value=reason, inline=False)
+    embed.set_footer(text=f"Warned by {interaction.user.display_name}")
+    await interaction.response.send_message(content=role_text.strip() or None, embed=embed)
+
+    try:
+        await member.send(
+            f"⚠️ You have been warned in **{interaction.guild.name}**.\n"
+            f"**Reason:** {reason}\n"
+            f"**Total warnings:** {count}"
+        )
+    except discord.Forbidden:
+        pass
+
+@bot.tree.command(name="warnings", description="Check how many warnings a member has")
+@app_commands.describe(member="The member to check")
+async def warnings(interaction: discord.Interaction, member: discord.Member):
+    guild_id = str(interaction.guild.id)
+    user_id  = str(member.id)
+    entries  = warnings_data.get(guild_id, {}).get(user_id, [])
+
+    if not entries:
+        await interaction.response.send_message(f'✅ **{member.display_name}** has no warnings.', ephemeral=True)
+        return
+
+    embed = discord.Embed(
+        title=f"⚠️ Warnings for {member.display_name}",
+        color=discord.Color.orange()
+    )
+    for i, w in enumerate(entries, 1):
+        embed.add_field(
+            name=f"Warning #{i} — {w['timestamp']}",
+            value=f"**Reason:** {w['reason']}\n**By:** {w['by']}",
+            inline=False
+        )
+    embed.set_thumbnail(url=member.display_avatar.url)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+@bot.tree.command(name="clearwarnings", description="Clear all warnings for a member and remove the warn role (owner only)")
+@app_commands.describe(member="The member to clear warnings for")
+@app_commands.check(is_owner)
+async def clearwarnings(interaction: discord.Interaction, member: discord.Member):
+    guild_id = str(interaction.guild.id)
+    user_id  = str(member.id)
+
+    warnings_data.get(guild_id, {}).pop(user_id, None)
+    save_json(WARNINGS_FILE, warnings_data)
+
+    role_id = warn_roles.get(guild_id)
+    role_text = ""
+    if role_id:
+        warn_role = interaction.guild.get_role(int(role_id))
+        if warn_role and warn_role in member.roles:
+            try:
+                await member.remove_roles(warn_role, reason=f"Warnings cleared by {interaction.user}")
+                role_text = f" The **{warn_role.name}** role has been removed."
+            except discord.Forbidden:
+                role_text = " ⚠️ Couldn't remove the warn role (missing permissions)."
+
+    await interaction.response.send_message(
+        f'✅ All warnings cleared for **{member.display_name}**.{role_text}'
+    )
 
 # ── Error handler ─────────────────────────────────────────────────────────────
 

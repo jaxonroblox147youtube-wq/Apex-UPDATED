@@ -4,7 +4,8 @@ import { spawn } from "child_process";
 import path from "path";
 
 function startDiscordBot() {
-  const botPath = path.resolve(process.cwd(), "discord_bot.py");
+  // Built file lives at artifacts/api-server/dist/index.mjs → 3 levels up = workspace root
+  const botPath = path.resolve(import.meta.dirname, "../../../discord_bot.py");
   const child = spawn("python", [botPath], {
     stdio: "inherit",
     env: { ...process.env },

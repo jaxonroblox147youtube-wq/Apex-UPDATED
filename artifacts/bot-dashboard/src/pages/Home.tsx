@@ -146,31 +146,22 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Marquee Commands */}
-      <section id="commands" className="py-24 overflow-hidden relative">
-        <div className="container mx-auto px-4 mb-12 text-center">
-          <h2 className="text-3xl font-bold">50+ Slash Commands</h2>
-          <p className="text-muted-foreground mt-2">Just type <code className="bg-secondary px-2 py-1 rounded text-primary">/</code> to get started.</p>
-        </div>
-        
-        <div className="flex flex-col gap-4">
-          <div className="flex gap-4 animate-[scroll_30s_linear_infinite] w-max px-4">
-            {['/slots', '/pp', '/iq', '/sus', '/hug', '/slap', '/pat', '/hack', '/typerace', '/battle'].map((cmd, i) => (
-              <CommandBadge key={i} cmd={cmd} />
-            ))}
-            {/* Duplicate for infinite effect */}
-            {['/slots', '/pp', '/iq', '/sus', '/hug', '/slap', '/pat', '/hack', '/typerace', '/battle'].map((cmd, i) => (
-              <CommandBadge key={`dup-${i}`} cmd={cmd} />
-            ))}
+      {/* Commands Section */}
+      <section id="commands" className="py-24 relative">
+        <div className="container mx-auto px-4">
+          <div className="text-center mb-14">
+            <h2 className="text-3xl md:text-5xl font-bold mb-4">61 Slash Commands</h2>
+            <p className="text-muted-foreground">Just type <code className="bg-secondary px-2 py-1 rounded text-primary font-mono">/</code> to get started.</p>
           </div>
-          <div className="flex gap-4 animate-[scroll-reverse_35s_linear_infinite] w-max px-4 -ml-24">
-            {['/love_letter', '/fortune', '/passwordgen', '/encode', '/decode', '/ascii_art', '/roll_stats', '/dare', '/truth', '/pickup', '/quote'].map((cmd, i) => (
-              <CommandBadge key={i} cmd={cmd} />
-            ))}
-            {/* Duplicate for infinite effect */}
-            {['/love_letter', '/fortune', '/passwordgen', '/encode', '/decode', '/ascii_art', '/roll_stats', '/dare', '/truth', '/pickup', '/quote'].map((cmd, i) => (
-              <CommandBadge key={`dup-rev-${i}`} cmd={cmd} />
-            ))}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            <CommandGroup title="General" cmds={['/ping','/hello','/bye']} />
+            <CommandGroup title="Info" cmds={['/botinfo','/userinfo','/serverinfo','/avatar','/roleinfo']} />
+            <CommandGroup title="Polls & Dice" cmds={['/roll','/poll','/poll_choice']} />
+            <CommandGroup title="Welcome System" cmds={['/setwelcome','/clearwelcome','/welcometest']} />
+            <CommandGroup title="Moderation" cmds={['/kick','/ban','/softban','/unban','/banlist','/timeout','/untimeout','/clear','/slowmode','/lock','/unlock','/nick','/addrole','/removerole','/announce']} />
+            <CommandGroup title="Warning System" cmds={['/setwarnrole','/warn','/warnings','/clearwarnings']} />
+            <CommandGroup title="Entertainment" cmds={['/coinflip','/8ball','/joke','/fact','/rps','/choose','/rate','/ship','/roast','/compliment','/mock','/reverse','/would_you_rather','/trivia','/number_guess','/slots','/pp','/iq','/sus','/hug','/slap','/pat','/clap','/emojify','/quote','/pickup','/dare','/truth','/fortune','/hack','/passwordgen','/ascii_art','/encode','/decode','/typerace','/roll_stats','/love_letter','/battle']} />
           </div>
         </div>
       </section>
@@ -210,16 +201,6 @@ export default function Home() {
         </div>
       </footer>
       
-      <style>{`
-        @keyframes scroll {
-          0% { transform: translateX(0); }
-          100% { transform: translateX(calc(-50% - 1rem)); }
-        }
-        @keyframes scroll-reverse {
-          0% { transform: translateX(calc(-50% - 1rem)); }
-          100% { transform: translateX(0); }
-        }
-      `}</style>
     </div>
   );
 }
@@ -238,11 +219,22 @@ function FeatureCard({ icon, title, desc }: { icon: React.ReactNode, title: stri
   );
 }
 
-function CommandBadge({ cmd }: { cmd: string }) {
+function CommandGroup({ title, cmds }: { title: string, cmds: string[] }) {
   return (
-    <div className="flex items-center gap-2 bg-secondary border border-border px-6 py-4 rounded-xl shadow-sm min-w-max hover:bg-secondary/80 transition-colors">
-      <Terminal className="w-5 h-5 text-muted-foreground" />
-      <span className="font-mono font-bold text-lg">{cmd}</span>
-    </div>
+    <Card className="bg-background/50 border border-border/50 p-6 rounded-2xl">
+      <h3 className="text-sm font-bold uppercase tracking-widest text-muted-foreground mb-4 pb-3 border-b border-border">
+        {title}
+      </h3>
+      <div className="flex flex-wrap gap-2">
+        {cmds.map((cmd) => (
+          <span
+            key={cmd}
+            className="font-mono text-sm bg-secondary border border-border px-3 py-1 rounded-lg text-foreground"
+          >
+            {cmd}
+          </span>
+        ))}
+      </div>
+    </Card>
   );
 }

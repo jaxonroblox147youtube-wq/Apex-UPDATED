@@ -16,6 +16,10 @@ import {
 
 const INVITE_URL = "https://discord.com/api/oauth2/authorize?client_id=1507776524189827242&permissions=1099780090886&scope=bot%20applications.commands";
 
+const ROW_1 = ['/ping','/hello','/bye','/botinfo','/userinfo','/serverinfo','/avatar','/roleinfo','/roll','/poll','/poll_choice','/setwelcome','/clearwelcome','/welcometest','/coinflip','/8ball','/joke','/fact','/rps','/choose','/rate'];
+const ROW_2 = ['/kick','/ban','/softban','/unban','/banlist','/timeout','/untimeout','/clear','/slowmode','/lock','/unlock','/nick','/addrole','/removerole','/announce','/setwarnrole','/warn','/warnings','/clearwarnings','/ship','/roast'];
+const ROW_3 = ['/compliment','/mock','/reverse','/would_you_rather','/trivia','/number_guess','/slots','/pp','/iq','/sus','/hug','/slap','/pat','/clap','/emojify','/quote','/pickup','/dare','/truth','/fortune','/hack','/passwordgen','/ascii_art','/encode','/decode','/typerace','/roll_stats','/love_letter','/battle'];
+
 export default function Home() {
   return (
     <div className="min-h-screen bg-background text-foreground overflow-x-hidden selection:bg-primary/30">
@@ -146,24 +150,35 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Commands Section */}
-      <section id="commands" className="py-24 relative">
-        <div className="container mx-auto px-4">
-          <div className="text-center mb-14">
-            <h2 className="text-3xl md:text-5xl font-bold mb-4">61 Slash Commands</h2>
-            <p className="text-muted-foreground">Just type <code className="bg-secondary px-2 py-1 rounded text-primary font-mono">/</code> to get started.</p>
-          </div>
+      {/* Marquee Commands */}
+      <section id="commands" className="py-24 overflow-hidden relative">
+        <div className="container mx-auto px-4 mb-12 text-center">
+          <h2 className="text-3xl font-bold">61 Slash Commands</h2>
+          <p className="text-muted-foreground mt-2">Just type <code className="bg-secondary px-2 py-1 rounded text-primary font-mono">/</code> to get started.</p>
+        </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            <CommandGroup title="General" cmds={['/ping','/hello','/bye']} />
-            <CommandGroup title="Info" cmds={['/botinfo','/userinfo','/serverinfo','/avatar','/roleinfo']} />
-            <CommandGroup title="Polls & Dice" cmds={['/roll','/poll','/poll_choice']} />
-            <CommandGroup title="Welcome System" cmds={['/setwelcome','/clearwelcome','/welcometest']} />
-            <CommandGroup title="Moderation" cmds={['/kick','/ban','/softban','/unban','/banlist','/timeout','/untimeout','/clear','/slowmode','/lock','/unlock','/nick','/addrole','/removerole','/announce']} />
-            <CommandGroup title="Warning System" cmds={['/setwarnrole','/warn','/warnings','/clearwarnings']} />
-            <CommandGroup title="Entertainment" cmds={['/coinflip','/8ball','/joke','/fact','/rps','/choose','/rate','/ship','/roast','/compliment','/mock','/reverse','/would_you_rather','/trivia','/number_guess','/slots','/pp','/iq','/sus','/hug','/slap','/pat','/clap','/emojify','/quote','/pickup','/dare','/truth','/fortune','/hack','/passwordgen','/ascii_art','/encode','/decode','/typerace','/roll_stats','/love_letter','/battle']} />
+        <div className="flex flex-col gap-4">
+          <div className="flex gap-4 animate-[scroll_40s_linear_infinite] w-max px-4">
+            {ROW_1.concat(ROW_1).map((cmd, i) => <CommandBadge key={i} cmd={cmd} />)}
+          </div>
+          <div className="flex gap-4 animate-[scroll-reverse_45s_linear_infinite] w-max px-4 -ml-24">
+            {ROW_2.concat(ROW_2).map((cmd, i) => <CommandBadge key={i} cmd={cmd} />)}
+          </div>
+          <div className="flex gap-4 animate-[scroll_35s_linear_infinite] w-max px-4">
+            {ROW_3.concat(ROW_3).map((cmd, i) => <CommandBadge key={i} cmd={cmd} />)}
           </div>
         </div>
+
+        <style>{`
+          @keyframes scroll {
+            0% { transform: translateX(0); }
+            100% { transform: translateX(calc(-50% - 0.5rem)); }
+          }
+          @keyframes scroll-reverse {
+            0% { transform: translateX(calc(-50% - 0.5rem)); }
+            100% { transform: translateX(0); }
+          }
+        `}</style>
       </section>
 
       {/* CTA Section */}
@@ -219,22 +234,11 @@ function FeatureCard({ icon, title, desc }: { icon: React.ReactNode, title: stri
   );
 }
 
-function CommandGroup({ title, cmds }: { title: string, cmds: string[] }) {
+function CommandBadge({ cmd }: { cmd: string }) {
   return (
-    <Card className="bg-background/50 border border-border/50 p-6 rounded-2xl">
-      <h3 className="text-sm font-bold uppercase tracking-widest text-muted-foreground mb-4 pb-3 border-b border-border">
-        {title}
-      </h3>
-      <div className="flex flex-wrap gap-2">
-        {cmds.map((cmd) => (
-          <span
-            key={cmd}
-            className="font-mono text-sm bg-secondary border border-border px-3 py-1 rounded-lg text-foreground"
-          >
-            {cmd}
-          </span>
-        ))}
-      </div>
-    </Card>
+    <div className="flex items-center gap-2 bg-secondary border border-border px-5 py-3 rounded-xl shadow-sm min-w-max">
+      <Terminal className="w-4 h-4 text-muted-foreground shrink-0" />
+      <span className="font-mono font-semibold text-base">{cmd}</span>
+    </div>
   );
 }

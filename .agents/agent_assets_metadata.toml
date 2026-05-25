@@ -1,0 +1,8 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "zJZW7y52DvnHl0JfR5B_x"
+uri = "file://artifacts/bot-dashboard/public/hero.png"
+type = "image"
+title = "Abstract neon tech bot theme"

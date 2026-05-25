@@ -1,5 +1,24 @@
 import app from "./app";
 import { logger } from "./lib/logger";
+import { spawn } from "child_process";
+import path from "path";
+
+function startDiscordBot() {
+  const botPath = path.resolve(process.cwd(), "discord_bot.py");
+  const child = spawn("python", [botPath], {
+    stdio: "inherit",
+    env: { ...process.env },
+  });
+  child.on("exit", (code) => {
+    logger.warn({ code }, "Discord bot exited — restarting in 5s");
+    setTimeout(startDiscordBot, 5000);
+  });
+  child.on("error", (err) => {
+    logger.error({ err }, "Discord bot process error");
+    setTimeout(startDiscordBot, 5000);
+  });
+  logger.info("Discord bot process started");
+}
 
 const rawPort = process.env["PORT"];
 
@@ -22,4 +41,5 @@ app.listen(port, (err) => {
   }
 
   logger.info({ port }, "Server listening");
+  startDiscordBot();
 });

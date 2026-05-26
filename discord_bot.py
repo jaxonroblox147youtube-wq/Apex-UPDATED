@@ -1155,7 +1155,9 @@ async def on_message(message: discord.Message):
         await bot.process_commands(message)
         return
 
-    automod = load_json(AUTOMOD_FILE) or {}
+    gid_str  = str(message.guild.id)
+    all_automod = load_json(AUTOMOD_FILE) or {}
+    automod  = all_automod.get(gid_str, {})
     content  = message.content
 
     # ── Word filter ──────────────────────────────────────────────────────────
@@ -1212,10 +1214,11 @@ async def on_message(message: discord.Message):
                 pass
             return
 
-    # ── Custom commands ──────────────────────────────────────────────────────
+    # ── Custom prefix commands (!name) ───────────────────────────────────────
     if content.startswith("!"):
         trigger = content[1:].split()[0].lower()
-        cmds = load_json(CUSTOM_CMDS_FILE) or {}
+        all_cmds = load_json(CUSTOM_CMDS_FILE) or {}
+        cmds = all_cmds.get(gid_str, {})
         if trigger in cmds:
             cmd = cmds[trigger]
             if cmd.get("owner_only"):
@@ -1230,6 +1233,33 @@ async def on_message(message: discord.Message):
 # ═════════════════════════════════════════════════════════════════════════════
 # SECTION 9 — ERROR HANDLER
 # ═════════════════════════════════════════════════════════════════════════════
+
+@bot.event
+async def on_interaction(interaction: discord.Interaction):
+    """Handle custom slash commands registered via the dashboard.
+    Must always call tree.call_scheduled_callbacks to process built-in commands."""
+    if (
+        interaction.type == discord.InteractionType.application_command
+        and not interaction.response.is_done()
+    ):
+        data = interaction.data or {}
+        cmd_name = data.get("name", "")
+        gid_str  = str(interaction.guild_id) if interaction.guild_id else ""
+        if cmd_name and gid_str:
+            all_cmds = load_json(CUSTOM_CMDS_FILE) or {}
+            cmds = all_cmds.get(gid_str, {})
+            if cmd_name in cmds:
+                cmd = cmds[cmd_name]
+                if cmd.get("owner_only") and not is_owner(interaction):
+                    await interaction.response.send_message(
+                        "❌ Only the server owner can use this command.", ephemeral=True
+                    )
+                    return
+                await interaction.response.send_message(cmd["response"])
+                return  # handled — tree has nothing scheduled for this command
+
+    # Always let the tree run its scheduled callbacks for built-in commands
+    await bot.tree.call_scheduled_callbacks(interaction)
 
 @bot.event
 async def on_command_error(ctx, error):

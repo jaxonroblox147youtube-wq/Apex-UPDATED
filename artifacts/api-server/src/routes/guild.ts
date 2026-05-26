@@ -18,7 +18,31 @@ function writeJson(filename: string, data: unknown) {
   writeFileSync(dataPath(filename), JSON.stringify(data, null, 2));
 }
 
-type CmdEntry = { response: string; owner_only: boolean; created_at: string };
+const APPLICATION_ID = "1507776524189827242";
+
+async function registerDiscordCommand(guildId: string, name: string, response: string): Promise<string | null> {
+  const description = response.length > 100 ? response.slice(0, 97) + "..." : response;
+  const r = await fetch(`https://discord.com/api/v10/applications/${APPLICATION_ID}/guilds/${guildId}/commands`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bot ${process.env["DISCORD_TOKEN"]}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ name, description, type: 1 }),
+  });
+  if (!r.ok) return null;
+  const data = await r.json() as { id?: string };
+  return data.id ?? null;
+}
+
+async function unregisterDiscordCommand(guildId: string, commandId: string): Promise<void> {
+  await fetch(`https://discord.com/api/v10/applications/${APPLICATION_ID}/guilds/${guildId}/commands/${commandId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bot ${process.env["DISCORD_TOKEN"]}` },
+  });
+}
+
+type CmdEntry = { response: string; owner_only: boolean; created_at: string; discord_command_id?: string };
 type CmdsFile = { [guildId: string]: { [cmdName: string]: CmdEntry } };
 
 const DEFAULT_AUTOMOD = {
@@ -78,7 +102,7 @@ router.get("/guilds/:guildId/commands", requireAuth, requireGuildAccess, (req, r
   })));
 });
 
-router.post("/guilds/:guildId/commands", requireAuth, requireGuildAccess, (req, res) => {
+router.post("/guilds/:guildId/commands", requireAuth, requireGuildAccess, async (req, res) => {
   const guildId = req.params["guildId"] as string;
   const { name, response, owner_only = false } = req.body as { name?: string; response?: string; owner_only?: boolean };
   if (!name || !response) { res.status(400).json({ error: "name and response are required" }); return; }
@@ -86,17 +110,31 @@ router.post("/guilds/:guildId/commands", requireAuth, requireGuildAccess, (req, 
   const all = readJson<CmdsFile>("custom_commands.json", {});
   if (!all[guildId]) all[guildId] = {};
   if (all[guildId][clean]) { res.status(409).json({ error: "Command already exists" }); return; }
-  const entry: CmdEntry = { response, owner_only: Boolean(owner_only), created_at: new Date().toISOString() };
+
+  // Register as a real slash command in the guild
+  const discordId = await registerDiscordCommand(guildId, clean, response);
+
+  const entry: CmdEntry = {
+    response,
+    owner_only: Boolean(owner_only),
+    created_at: new Date().toISOString(),
+    ...(discordId ? { discord_command_id: discordId } : {}),
+  };
   all[guildId][clean] = entry;
   writeJson("custom_commands.json", all);
-  res.status(201).json({ name: clean, ...entry });
+  res.status(201).json({ name: clean, response: entry.response, owner_only: entry.owner_only, created_at: entry.created_at });
 });
 
-router.delete("/guilds/:guildId/commands/:name", requireAuth, requireGuildAccess, (req, res) => {
+router.delete("/guilds/:guildId/commands/:name", requireAuth, requireGuildAccess, async (req, res) => {
   const guildId = req.params["guildId"] as string;
   const name = req.params["name"] as string;
   const all = readJson<CmdsFile>("custom_commands.json", {});
   if (!all[guildId]?.[name]) { res.status(404).json({ error: "Command not found" }); return; }
+
+  // Unregister from Discord
+  const discordId = all[guildId][name].discord_command_id;
+  if (discordId) await unregisterDiscordCommand(guildId, discordId);
+
   delete all[guildId][name];
   writeJson("custom_commands.json", all);
   res.status(204).send();

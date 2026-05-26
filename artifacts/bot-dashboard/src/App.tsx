@@ -4,10 +4,8 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import Home from "@/pages/Home";
-import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import DashboardOverview from "@/pages/DashboardOverview";
-import DashboardCommands from "@/pages/DashboardCommands";
-import DashboardAutomod from "@/pages/DashboardAutomod";
+import ServerPicker from "@/pages/ServerPicker";
+import GuildDashboard from "@/pages/GuildDashboard";
 
 const queryClient = new QueryClient();
 
@@ -15,20 +13,15 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={Home} />
-      <Route path="/dashboard">
-        <DashboardLayout>
-          <DashboardOverview />
-        </DashboardLayout>
+      <Route path="/dashboard" component={ServerPicker} />
+      <Route path="/dashboard/:guildId">
+        {(params) => <GuildDashboard tab="overview" />}
       </Route>
-      <Route path="/dashboard/commands">
-        <DashboardLayout>
-          <DashboardCommands />
-        </DashboardLayout>
+      <Route path="/dashboard/:guildId/commands">
+        {(params) => <GuildDashboard tab="commands" />}
       </Route>
-      <Route path="/dashboard/automod">
-        <DashboardLayout>
-          <DashboardAutomod />
-        </DashboardLayout>
+      <Route path="/dashboard/:guildId/automod">
+        {(params) => <GuildDashboard tab="automod" />}
       </Route>
       <Route component={NotFound} />
     </Switch>

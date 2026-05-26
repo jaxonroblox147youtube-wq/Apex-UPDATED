@@ -42,7 +42,7 @@ router.get("/bot/stats", (_req, res) => {
 // ── Custom commands ────────────────────────────────────────────────────────
 
 router.get("/bot/commands", (_req, res) => {
-  const cmds = readJson<Record<string, { response: string; created_at: string }>>(
+  const cmds = readJson<Record<string, { response: string; owner_only?: boolean; created_at: string }>>(
     "custom_commands.json", {}
   );
   const list = Object.entries(cmds).map(([name, v]) => ({

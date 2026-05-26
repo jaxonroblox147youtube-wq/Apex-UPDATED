@@ -5,7 +5,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export default function DashboardOverview() {
   const { data: stats, isLoading, isError } = useGetBotStats({
-    query: { refetchInterval: 15000 }
+    query: { refetchInterval: 15000, queryKey: ["getBotStats"] }
   });
 
   const formatUptime = (seconds: number) => {

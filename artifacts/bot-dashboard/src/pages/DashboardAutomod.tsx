@@ -9,7 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { Shield, MessageSquareX, Link2Off, Save } from "lucide-react";
-import type { AutomodSettings } from "@workspace/api-client-react/src/generated/api.schemas";
+import type { AutomodSettings } from "@workspace/api-client-react";
 
 export default function DashboardAutomod() {
   const queryClient = useQueryClient();
@@ -52,7 +52,7 @@ export default function DashboardAutomod() {
         ...localSettings,
         word_filter: {
           ...localSettings.word_filter,
-          words: [...localSettings.word_filter.words, newWord]
+          words: [...localSettings.word_filter.words, newWord] as string[]
         }
       });
     }
@@ -139,7 +139,7 @@ export default function DashboardAutomod() {
                 </Button>
               </div>
               <div className="flex flex-wrap gap-2 mt-4 min-h-[2rem]">
-                {localSettings.word_filter.words.map(word => (
+                {localSettings.word_filter.words.map((word: string) => (
                   <div key={word} className="flex items-center gap-2 bg-secondary text-secondary-foreground px-3 py-1 rounded-full text-sm">
                     <span>{word}</span>
                     <button 

@@ -4,6 +4,10 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import Home from "@/pages/Home";
+import { DashboardLayout } from "@/components/layout/DashboardLayout";
+import DashboardOverview from "@/pages/DashboardOverview";
+import DashboardCommands from "@/pages/DashboardCommands";
+import DashboardAutomod from "@/pages/DashboardAutomod";
 
 const queryClient = new QueryClient();
 
@@ -11,6 +15,21 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={Home} />
+      <Route path="/dashboard">
+        <DashboardLayout>
+          <DashboardOverview />
+        </DashboardLayout>
+      </Route>
+      <Route path="/dashboard/commands">
+        <DashboardLayout>
+          <DashboardCommands />
+        </DashboardLayout>
+      </Route>
+      <Route path="/dashboard/automod">
+        <DashboardLayout>
+          <DashboardAutomod />
+        </DashboardLayout>
+      </Route>
       <Route component={NotFound} />
     </Switch>
   );

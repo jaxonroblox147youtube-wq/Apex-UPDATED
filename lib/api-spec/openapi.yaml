@@ -10,13 +10,14 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: bot
+    description: Bot statistics and management
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +25,101 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /bot/stats:
+    get:
+      operationId: getBotStats
+      tags: [bot]
+      summary: Get live bot statistics
+      responses:
+        "200":
+          description: Bot statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotStats"
+
+  /bot/commands:
+    get:
+      operationId: listCustomCommands
+      tags: [bot]
+      summary: List all custom commands
+      responses:
+        "200":
+          description: List of custom commands
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CustomCommand"
+    post:
+      operationId: createCustomCommand
+      tags: [bot]
+      summary: Create a custom command
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CustomCommandInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomCommand"
+        "409":
+          description: Command already exists
+
+  /bot/commands/{name}:
+    delete:
+      operationId: deleteCustomCommand
+      tags: [bot]
+      summary: Delete a custom command
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  /bot/automod:
+    get:
+      operationId: getAutomodSettings
+      tags: [bot]
+      summary: Get auto-moderation settings
+      responses:
+        "200":
+          description: Automod settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutomodSettings"
+    put:
+      operationId: updateAutomodSettings
+      tags: [bot]
+      summary: Update auto-moderation settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AutomodSettings"
+      responses:
+        "200":
+          description: Updated settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutomodSettings"
+
 components:
   schemas:
     HealthStatus:
@@ -31,6 +127,87 @@ components:
       properties:
         status:
           type: string
-      required:
-        - status
+      required: [status]
 
+    BotStats:
+      type: object
+      properties:
+        status:
+          type: string
+        servers:
+          type: integer
+        users:
+          type: integer
+        latency_ms:
+          type: integer
+        uptime_seconds:
+          type: integer
+        command_count:
+          type: integer
+        updated_at:
+          type: string
+      required: [status, servers, users, latency_ms, uptime_seconds, command_count, updated_at]
+
+    CustomCommand:
+      type: object
+      properties:
+        name:
+          type: string
+        response:
+          type: string
+        owner_only:
+          type: boolean
+        created_at:
+          type: string
+      required: [name, response, owner_only, created_at]
+
+    CustomCommandInput:
+      type: object
+      properties:
+        name:
+          type: string
+        response:
+          type: string
+        owner_only:
+          type: boolean
+      required: [name, response, owner_only]
+
+    WordFilterSettings:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        words:
+          type: array
+          items:
+            type: string
+      required: [enabled, words]
+
+    AntiSpamSettings:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        max_messages:
+          type: integer
+        window_seconds:
+          type: integer
+      required: [enabled, max_messages, window_seconds]
+
+    AntiLinkSettings:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+      required: [enabled]
+
+    AutomodSettings:
+      type: object
+      properties:
+        word_filter:
+          $ref: "#/components/schemas/WordFilterSettings"
+        anti_spam:
+          $ref: "#/components/schemas/AntiSpamSettings"
+        anti_link:
+          $ref: "#/components/schemas/AntiLinkSettings"
+      required: [word_filter, anti_spam, anti_link]

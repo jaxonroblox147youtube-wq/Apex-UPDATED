@@ -4,12 +4,20 @@ import random
 import datetime
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 # ── Data files ────────────────────────────────────────────────────────────────
 WELCOME_FILE   = "welcome_channels.json"
 WARNINGS_FILE  = "warnings.json"
 WARN_ROLES_FILE= "warn_roles.json"
+STATS_FILE        = "bot_stats.json"
+CUSTOM_CMDS_FILE  = "custom_commands.json"
+AUTOMOD_FILE      = "automod_settings.json"
+
+BOT_START_TIME = None
+
+# Spam tracking: {guild_id: {user_id: [timestamps]}}
+spam_tracker: dict = {}
 
 def load_json(path):
     if os.path.exists(path):
@@ -38,12 +46,28 @@ class MyBot(commands.Bot):
 
 bot = MyBot()
 
+@tasks.loop(seconds=30)
+async def write_stats():
+    stats = {
+        "status": "online",
+        "servers": len(bot.guilds),
+        "users": sum(g.member_count or 0 for g in bot.guilds),
+        "latency_ms": round(bot.latency * 1000),
+        "uptime_seconds": round((datetime.datetime.utcnow() - BOT_START_TIME).total_seconds()) if BOT_START_TIME else 0,
+        "command_count": 61,
+        "updated_at": datetime.datetime.utcnow().isoformat() + "Z",
+    }
+    save_json(STATS_FILE, stats)
+
 @bot.event
 async def on_ready():
+    global BOT_START_TIME
+    BOT_START_TIME = datetime.datetime.utcnow()
     await bot.change_presence(
         activity=discord.Activity(type=discord.ActivityType.watching, name="over the server 👀")
     )
     print(f"Logged in as {bot.user.name}")
+    write_stats.start()
 
 # ── Owner check ───────────────────────────────────────────────────────────────
 BOT_ADMIN_ID = 1481589775507918942
@@ -1117,8 +1141,101 @@ async def battle(interaction: discord.Interaction, opponent: discord.Member):
     await interaction.response.send_message(embed=embed)
 
 # ═════════════════════════════════════════════════════════════════════════════
-# SECTION 8 — ERROR HANDLER
+# SECTION 8 — CUSTOM COMMANDS & AUTO-MODERATION
 # ═════════════════════════════════════════════════════════════════════════════
+
+import re
+import time as _time
+
+URL_PATTERN = re.compile(r"https?://\S+|discord\.gg/\S+", re.IGNORECASE)
+
+@bot.event
+async def on_message(message: discord.Message):
+    if message.author.bot or not message.guild:
+        await bot.process_commands(message)
+        return
+
+    automod = load_json(AUTOMOD_FILE) or {}
+    content  = message.content
+
+    # ── Word filter ──────────────────────────────────────────────────────────
+    wf = automod.get("word_filter", {})
+    if wf.get("enabled"):
+        lower = content.lower()
+        for word in wf.get("words", []):
+            if word.lower() in lower:
+                try:
+                    await message.delete()
+                    await message.channel.send(
+                        f"⚠️ {message.author.mention} — your message was removed (word filter).",
+                        delete_after=5,
+                    )
+                except discord.Forbidden:
+                    pass
+                return
+
+    # ── Anti-link ────────────────────────────────────────────────────────────
+    al = automod.get("anti_link", {})
+    if al.get("enabled") and URL_PATTERN.search(content):
+        try:
+            await message.delete()
+            await message.channel.send(
+                f"⚠️ {message.author.mention} — links are not allowed here.",
+                delete_after=5,
+            )
+        except discord.Forbidden:
+            pass
+        return
+
+    # ── Anti-spam ────────────────────────────────────────────────────────────
+    asp = automod.get("anti_spam", {})
+    if asp.get("enabled"):
+        gid  = message.guild.id
+        uid  = message.author.id
+        now  = _time.time()
+        win  = asp.get("window_seconds", 5)
+        limit = asp.get("max_messages", 5)
+        spam_tracker.setdefault(gid, {}).setdefault(uid, [])
+        spam_tracker[gid][uid] = [t for t in spam_tracker[gid][uid] if now - t < win]
+        spam_tracker[gid][uid].append(now)
+        if len(spam_tracker[gid][uid]) > limit:
+            try:
+                await message.delete()
+                timeout_until = discord.utils.utcnow() + datetime.timedelta(seconds=30)
+                await message.author.timeout(timeout_until, reason="Auto-mod: spamming")
+                await message.channel.send(
+                    f"⚠️ {message.author.mention} has been timed out for spamming.",
+                    delete_after=8,
+                )
+                spam_tracker[gid][uid] = []
+            except discord.Forbidden:
+                pass
+            return
+
+    # ── Custom commands ──────────────────────────────────────────────────────
+    if content.startswith("!"):
+        trigger = content[1:].split()[0].lower()
+        cmds = load_json(CUSTOM_CMDS_FILE) or {}
+        if trigger in cmds:
+            cmd = cmds[trigger]
+            if cmd.get("owner_only"):
+                if not is_owner(type("_", (), {"user": message.author, "guild": message.guild})()):
+                    await message.channel.send("❌ Only the server owner can use this command.", delete_after=5)
+                    return
+            await message.channel.send(cmd["response"])
+            return
+
+    await bot.process_commands(message)
+
+# ═════════════════════════════════════════════════════════════════════════════
+# SECTION 9 — ERROR HANDLER
+# ═════════════════════════════════════════════════════════════════════════════
+
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.CommandNotFound):
+        return
+    raise error
 
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):

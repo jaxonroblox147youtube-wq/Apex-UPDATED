@@ -36,6 +36,11 @@ export default function Home() {
           <div className="flex items-center gap-6 text-sm font-medium text-muted-foreground">
             <a href="#features" className="hover:text-primary transition-colors hidden md:block">Features</a>
             <a href="#commands" className="hover:text-primary transition-colors hidden md:block">Commands</a>
+            <Button size="sm" variant="outline" asChild className="rounded-full font-bold">
+              <a href="/dashboard">
+                Dashboard
+              </a>
+            </Button>
             <Button size="sm" asChild className="rounded-full font-bold">
               <a href={INVITE_URL} target="_blank" rel="noreferrer">
                 Add to Server

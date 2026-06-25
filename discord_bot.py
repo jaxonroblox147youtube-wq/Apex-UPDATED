@@ -464,8 +464,7 @@ async def setwarnrole(interaction: discord.Interaction, role: discord.Role):
 async def warn(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided"):
     if member.bot:
         return await interaction.response.send_message("❌ Can't warn a bot.", ephemeral=True)
-    if member == interaction.user:
-        return await interaction.response.send_message("❌ Can't warn yourself.", ephemeral=True)
+    # Self-warning is allowed — server owners can use it for testing
     gid, uid = str(interaction.guild.id), str(member.id)
     warnings_data.setdefault(gid, {}).setdefault(uid, [])
     warnings_data[gid][uid].append({
@@ -984,15 +983,36 @@ async def fortune(interaction: discord.Interaction):
 @app_commands.describe(member="Who to 'hack'")
 async def hack(interaction: discord.Interaction, member: discord.Member = None):
     target = member.display_name if member else "the mainframe"
-    steps = [
-        f"🔍 Locating `{target}`...",
-        f"📡 Pinging IP address... `192.168.{random.randint(0,255)}.{random.randint(0,255)}`",
-        f"🔓 Bypassing firewall... **done**",
-        f"💾 Downloading data... `{'█' * random.randint(5,15)}` {random.randint(60,99)}%",
-        f"🧠 Extracting embarrassing search history...",
-        f"✅ Hack complete. I now know everything. 😈",
+    await interaction.response.send_message(f"🔍 Initiating hack on **{target}**...")
+    msg = await interaction.original_response()
+
+    bars = [
+        "██████████ ██████████ 0%",
+        "██████████ ██████████ 12%",
+        "████████████████████ 25%",
+        "████████████████████████████ 38%",
+        "██████████████████████████████████ 50%",
+        "████████████████████████████████████████ 62%",
+        "██████████████████████████████████████████████ 75%",
+        "█████████████████████████████████████████████████████████ 88%",
+        "███████████████████████████████████████████████████████████████████ 100%",
     ]
-    await interaction.response.send_message("\n".join(steps))
+    phases = [
+        "Locating target...",
+        "Pinging IP...",
+        "Bypassing firewall...",
+        "Downloading data...",
+        "Decrypting files...",
+        "Extracting history...",
+        "Accessing camera...",
+        "Uploading to cloud...",
+        "Finalising...",
+    ]
+    for i, (bar, phase) in enumerate(zip(bars, phases)):
+        await asyncio.sleep(0.8)
+        await msg.edit(content=f"`{bar}`\n📡 {phase}")
+    await asyncio.sleep(0.6)
+    await msg.edit(content=f"`███████████████████████████████████████████████████████████████████ 100%`\n✅ **Hack complete.** I now know everything about **{target}**. 😈")
 
 @bot.tree.command(name="passwordgen", description="Generate a random strong password")
 @app_commands.describe(length="Password length (8–32, default 16)")

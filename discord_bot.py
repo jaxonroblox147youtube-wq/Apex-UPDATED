@@ -1732,6 +1732,541 @@ async def roblox_game(interaction: discord.Interaction, name: str):
     embed.set_footer(text="Roblox • roblox.com")
     await interaction.followup.send(embed=embed)
 
+# ── /robloxstatus — live Roblox service health ────────────────────────────────
+@bot.tree.command(name="robloxstatus", description="Check Roblox's live service status")
+async def roblox_status(interaction: discord.Interaction):
+    await interaction.response.defer()
+    async with aiohttp.ClientSession() as session:
+        async with session.get(
+            "https://status.roblox.com/api/v2/summary.json",
+            timeout=aiohttp.ClientTimeout(total=8),
+        ) as r:
+            data = await r.json() if r.status == 200 else {}
+
+    if not data:
+        await interaction.followup.send("❌ Could not reach the Roblox status page.", ephemeral=True)
+        return
+
+    indicator = data.get("status", {}).get("indicator", "none")
+    overall   = data.get("status", {}).get("description", "Unknown")
+    color_map = {"none": discord.Color.green(), "minor": discord.Color.yellow(),
+                 "major": discord.Color.orange(), "critical": discord.Color.red()}
+    icon_map  = {"none": "✅", "minor": "⚠️", "major": "🔶", "critical": "🔴"}
+
+    embed = discord.Embed(
+        title=f"{icon_map.get(indicator, '❓')} Roblox Status — {overall}",
+        url="https://status.roblox.com",
+        color=color_map.get(indicator, discord.Color.greyple()),
+    )
+    for comp in data.get("components", [])[:12]:
+        status = comp.get("status", "unknown").replace("_", " ").title()
+        icon   = "✅" if comp["status"] == "operational" else "⚠️" if "degraded" in comp["status"] else "🔴"
+        embed.add_field(name=comp.get("name", "?"), value=f"{icon} {status}", inline=True)
+    incidents = data.get("incidents", [])
+    if incidents:
+        inc = incidents[0]
+        embed.add_field(
+            name="🚨 Active Incident",
+            value=f"**{inc.get('name','?')}**\n{inc.get('shortlink','')}",
+            inline=False,
+        )
+    embed.set_footer(text="status.roblox.com")
+    await interaction.followup.send(embed=embed)
+
+# ── /robloxavatar <username> — full body avatar render ────────────────────────
+@bot.tree.command(name="robloxavatar", description="Show a Roblox user's full body avatar")
+@app_commands.describe(username="Roblox username")
+async def roblox_avatar(interaction: discord.Interaction, username: str):
+    await interaction.response.defer()
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            "https://users.roblox.com/v1/usernames/users",
+            json={"usernames": [username], "excludeBannedUsers": False},
+            timeout=aiohttp.ClientTimeout(total=8),
+        ) as r:
+            udata = await r.json() if r.status == 200 else {}
+        users = udata.get("data", [])
+        if not users:
+            await interaction.followup.send(f"❌ User **{username}** not found.", ephemeral=True)
+            return
+        uid = users[0]["id"]
+        display = users[0].get("displayName", username)
+
+        # Full body
+        async with session.get(
+            f"https://thumbnails.roblox.com/v1/users/avatar"
+            f"?userIds={uid}&size=420x420&format=Png&isCircular=false",
+            timeout=aiohttp.ClientTimeout(total=8),
+        ) as r:
+            tdata = await r.json() if r.status == 200 else {}
+        full_url = None
+        for entry in tdata.get("data", []):
+            if entry.get("state") == "Completed":
+                full_url = entry["imageUrl"]
+                break
+
+        # 3D avatar render (bust)
+        async with session.get(
+            f"https://thumbnails.roblox.com/v1/users/avatar-bust"
+            f"?userIds={uid}&size=420x420&format=Png&isCircular=false",
+            timeout=aiohttp.ClientTimeout(total=8),
+        ) as r:
+            bdata = await r.json() if r.status == 200 else {}
+        bust_url = None
+        for entry in bdata.get("data", []):
+            if entry.get("state") == "Completed":
+                bust_url = entry["imageUrl"]
+                break
+
+    embed = discord.Embed(
+        title=f"{display}'s Avatar",
+        url=f"https://www.roblox.com/users/{uid}/profile",
+        color=discord.Color.from_rgb(226, 35, 26),
+    )
+    if full_url:
+        embed.set_image(url=full_url)
+    if bust_url:
+        embed.set_thumbnail(url=bust_url)
+    embed.set_footer(text=f"User ID: {uid}")
+    await interaction.followup.send(embed=embed)
+
+# ── /robloxbadges <username> — recent badges ─────────────────────────────────
+@bot.tree.command(name="robloxbadges", description="Show a Roblox user's recently earned badges")
+@app_commands.describe(username="Roblox username")
+async def roblox_badges(interaction: discord.Interaction, username: str):
+    await interaction.response.defer()
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            "https://users.roblox.com/v1/usernames/users",
+            json={"usernames": [username], "excludeBannedUsers": False},
+            timeout=aiohttp.ClientTimeout(total=8),
+        ) as r:
+            udata = await r.json() if r.status == 200 else {}
+        users = udata.get("data", [])
+        if not users:
+            await interaction.followup.send(f"❌ User **{username}** not found.", ephemeral=True)
+            return
+        uid = users[0]["id"]
+        display = users[0].get("displayName", username)
+
+        async with session.get(
+            f"https://badges.roblox.com/v1/users/{uid}/badges?limit=10&sortOrder=Desc",
+            timeout=aiohttp.ClientTimeout(total=8),
+        ) as r:
+            bdata = await r.json() if r.status == 200 else {}
+
+    badges = bdata.get("data", [])
+    embed = discord.Embed(
+        title=f"🏅 {display}'s Recent Badges",
+        url=f"https://www.roblox.com/users/{uid}/profile",
+        color=discord.Color.gold(),
+        description=f"Showing up to {len(badges)} recently earned badges." if badges else "No badges found.",
+    )
+    for b in badges[:10]:
+        game = b.get("awardingUniverse", {})
+        game_name = game.get("name", "Unknown Game") if game else "Unknown Game"
+        embed.add_field(
+            name=b.get("name", "?"),
+            value=f"*{b.get('description','')[:60] or 'No description'}*\n🎮 {game_name}",
+            inline=False,
+        )
+    embed.set_footer(text=f"User ID: {uid}")
+    await interaction.followup.send(embed=embed)
+
+# ── /robloxfriends <username> — friends list ─────────────────────────────────
+@bot.tree.command(name="robloxfriends", description="Show a Roblox user's friends")
+@app_commands.describe(username="Roblox username")
+async def roblox_friends(interaction: discord.Interaction, username: str):
+    await interaction.response.defer()
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            "https://users.roblox.com/v1/usernames/users",
+            json={"usernames": [username], "excludeBannedUsers": False},
+            timeout=aiohttp.ClientTimeout(total=8),
+        ) as r:
+            udata = await r.json() if r.status == 200 else {}
+        users = udata.get("data", [])
+        if not users:
+            await interaction.followup.send(f"❌ User **{username}** not found.", ephemeral=True)
+            return
+        uid = users[0]["id"]
+        display = users[0].get("displayName", username)
+
+        async with session.get(
+            f"https://friends.roblox.com/v1/users/{uid}/friends/count",
+            timeout=aiohttp.ClientTimeout(total=8),
+        ) as r:
+            cdata = await r.json() if r.status == 200 else {}
+        count = cdata.get("count", 0)
+
+        async with session.get(
+            f"https://friends.roblox.com/v1/users/{uid}/friends?limit=200",
+            timeout=aiohttp.ClientTimeout(total=8),
+        ) as r:
+            fdata = await r.json() if r.status == 200 else {}
+
+    friends = fdata.get("data", [])[:15]
+    embed = discord.Embed(
+        title=f"👥 {display}'s Friends ({count} total)",
+        url=f"https://www.roblox.com/users/{uid}/profile",
+        color=discord.Color.blue(),
+    )
+    if friends:
+        names = [f"[{f.get('displayName', f['name'])}](https://www.roblox.com/users/{f['id']}/profile)" for f in friends]
+        embed.description = " • ".join(names)
+    else:
+        embed.description = "No friends found or profile is private."
+    embed.set_footer(text=f"User ID: {uid}")
+    await interaction.followup.send(embed=embed)
+
+# ── /robloxgroup <name> — group lookup ───────────────────────────────────────
+@bot.tree.command(name="robloxgroup", description="Look up a Roblox group by name")
+@app_commands.describe(name="Group name to search")
+async def roblox_group_lookup(interaction: discord.Interaction, name: str):
+    await interaction.response.defer()
+    async with aiohttp.ClientSession() as session:
+        async with session.get(
+            f"https://groups.roblox.com/v1/groups/search?keyword={name.replace(' ', '+')}&prioritizeExactMatch=true&limit=10",
+            timeout=aiohttp.ClientTimeout(total=8),
+        ) as r:
+            sdata = await r.json() if r.status == 200 else {}
+
+        results = sdata.get("data", [])
+        if not results:
+            await interaction.followup.send(f"❌ No groups found for **{name}**.", ephemeral=True)
+            return
+        g = results[0]
+        gid = g.get("id")
+
+        async with session.get(
+            f"https://groups.roblox.com/v1/groups/{gid}",
+            timeout=aiohttp.ClientTimeout(total=8),
+        ) as r:
+            gdata = await r.json() if r.status == 200 else g
+
+        # Group icon
+        async with session.get(
+            f"https://thumbnails.roblox.com/v1/groups/icons?groupIds={gid}&size=420x420&format=Png",
+            timeout=aiohttp.ClientTimeout(total=8),
+        ) as r:
+            idata = await r.json() if r.status == 200 else {}
+        icon_url = None
+        for entry in idata.get("data", []):
+            if entry.get("state") == "Completed":
+                icon_url = entry["imageUrl"]
+                break
+
+    owner     = gdata.get("owner") or {}
+    desc      = (gdata.get("description") or "No description.")[:300]
+    members   = gdata.get("memberCount", 0)
+    is_public = gdata.get("publicEntryAllowed", True)
+    verified  = gdata.get("hasVerifiedBadge", False)
+
+    embed = discord.Embed(
+        title=f"{gdata.get('name', name)} {'✅' if verified else ''}",
+        url=f"https://www.roblox.com/groups/{gid}",
+        description=desc,
+        color=discord.Color.from_rgb(226, 35, 26),
+    )
+    embed.add_field(name="👥 Members",    value=f"{members:,}",                          inline=True)
+    embed.add_field(name="👑 Owner",      value=owner.get("displayName", "None") if owner else "None", inline=True)
+    embed.add_field(name="🔓 Entry",      value="Open" if is_public else "Closed/Approval", inline=True)
+    if icon_url:
+        embed.set_thumbnail(url=icon_url)
+    embed.set_footer(text=f"Group ID: {gid}")
+    await interaction.followup.send(embed=embed)
+
+# ── /robloxpresence <username> — what is a user doing right now ───────────────
+@bot.tree.command(name="robloxpresence", description="Check what a Roblox user is currently doing")
+@app_commands.describe(username="Roblox username")
+async def roblox_presence(interaction: discord.Interaction, username: str):
+    await interaction.response.defer()
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            "https://users.roblox.com/v1/usernames/users",
+            json={"usernames": [username], "excludeBannedUsers": False},
+            timeout=aiohttp.ClientTimeout(total=8),
+        ) as r:
+            udata = await r.json() if r.status == 200 else {}
+        users = udata.get("data", [])
+        if not users:
+            await interaction.followup.send(f"❌ User **{username}** not found.", ephemeral=True)
+            return
+        uid = users[0]["id"]
+        display = users[0].get("displayName", username)
+
+        async with session.post(
+            "https://presence.roblox.com/v1/presence/users",
+            json={"userIds": [uid]},
+            headers={"Content-Type": "application/json"},
+            timeout=aiohttp.ClientTimeout(total=8),
+        ) as r:
+            pdata = await r.json() if r.status == 200 else {}
+
+        # Headshot
+        async with session.get(
+            f"https://thumbnails.roblox.com/v1/users/avatar-headshot"
+            f"?userIds={uid}&size=420x420&format=Png&isCircular=true",
+            timeout=aiohttp.ClientTimeout(total=8),
+        ) as r:
+            hdata = await r.json() if r.status == 200 else {}
+        headshot = None
+        for entry in hdata.get("data", []):
+            if entry.get("state") == "Completed":
+                headshot = entry["imageUrl"]
+                break
+
+    presences = pdata.get("userPresences", [{}])
+    p = presences[0] if presences else {}
+    ptype = p.get("userPresenceType", 0)
+    status_map = {
+        0: ("⚫ Offline",    discord.Color.dark_gray()),
+        1: ("🟢 Online",     discord.Color.green()),
+        2: ("🎮 In a Game",  discord.Color.from_rgb(226, 35, 26)),
+        3: ("🏗️ In Studio",  discord.Color.blurple()),
+    }
+    status_str, color = status_map.get(ptype, ("❓ Unknown", discord.Color.greyple()))
+
+    embed = discord.Embed(
+        title=f"{display}'s Presence",
+        url=f"https://www.roblox.com/users/{uid}/profile",
+        color=color,
+    )
+    embed.add_field(name="Status", value=status_str, inline=True)
+    if ptype == 2:
+        embed.add_field(name="🎮 Game", value=p.get("lastLocation", "Unknown"), inline=True)
+        place_id = p.get("placeId")
+        if place_id:
+            embed.add_field(name="▶️ Play", value=f"[Join Game](https://www.roblox.com/games/{place_id})", inline=True)
+    last_online = p.get("lastOnline", "")
+    if last_online:
+        embed.add_field(name="🕐 Last Seen", value=last_online[:19].replace("T", " ") + " UTC", inline=False)
+    if headshot:
+        embed.set_thumbnail(url=headshot)
+    embed.set_footer(text=f"User ID: {uid}")
+    await interaction.followup.send(embed=embed)
+
+# ── /robloxitem <name> — catalog item search ──────────────────────────────────
+@bot.tree.command(name="robloxitem", description="Search the Roblox catalog for an item")
+@app_commands.describe(name="Item name to search")
+async def roblox_item(interaction: discord.Interaction, name: str):
+    await interaction.response.defer()
+    async with aiohttp.ClientSession() as session:
+        async with session.get(
+            f"https://catalog.roblox.com/v1/search/items?category=All&keyword={name.replace(' ', '+')}&limit=10&salesTypeFilter=1",
+            timeout=aiohttp.ClientTimeout(total=8),
+        ) as r:
+            sdata = await r.json() if r.status == 200 else {}
+
+        items = sdata.get("data", [])
+        if not items:
+            await interaction.followup.send(f"❌ No catalog items found for **{name}**.", ephemeral=True)
+            return
+        item = items[0]
+        item_id  = item.get("id")
+        item_type = item.get("itemType", "Asset")  # "Asset" or "Bundle"
+
+        # Get details
+        endpoint = "assets" if item_type == "Asset" else "bundles"
+        async with session.get(
+            f"https://economy.roblox.com/v2/{endpoint}/{item_id}/details",
+            timeout=aiohttp.ClientTimeout(total=8),
+        ) as r:
+            ddata = await r.json() if r.status == 200 else {}
+
+        # Thumbnail
+        async with session.get(
+            f"https://thumbnails.roblox.com/v1/assets?assetIds={item_id}&size=420x420&format=Png",
+            timeout=aiohttp.ClientTimeout(total=8),
+        ) as r:
+            tdata = await r.json() if r.status == 200 else {}
+        thumb = None
+        for entry in tdata.get("data", []):
+            if entry.get("state") == "Completed":
+                thumb = entry["imageUrl"]
+                break
+
+    creator   = ddata.get("Creator", {})
+    price     = ddata.get("PriceInRobux")
+    is_limited = ddata.get("IsLimited", False) or ddata.get("IsLimitedUnique", False)
+    remaining  = ddata.get("Remaining")
+    sales      = ddata.get("Sales", 0)
+    desc       = (ddata.get("Description") or "No description.")[:200]
+    asset_type = ddata.get("AssetTypeName", item_type)
+
+    embed = discord.Embed(
+        title=ddata.get("Name", name),
+        url=f"https://www.roblox.com/catalog/{item_id}",
+        description=desc,
+        color=discord.Color.from_rgb(226, 35, 26),
+    )
+    embed.add_field(name="🏷️ Type",    value=asset_type,                                      inline=True)
+    embed.add_field(name="💰 Price",   value=f"R${price:,}" if price else "Free / Off-sale", inline=True)
+    embed.add_field(name="🔨 Creator", value=creator.get("Name", "Unknown"),                  inline=True)
+    embed.add_field(name="🛒 Sales",   value=f"{sales:,}",                                    inline=True)
+    if is_limited:
+        embed.add_field(name="⚡ Limited", value=f"Remaining: {remaining}" if remaining is not None else "Yes", inline=True)
+    if thumb:
+        embed.set_thumbnail(url=thumb)
+    embed.set_footer(text=f"Item ID: {item_id}")
+    await interaction.followup.send(embed=embed)
+
+# ── /robloxgroups <username> — groups a user belongs to ──────────────────────
+@bot.tree.command(name="robloxgroups", description="List the Roblox groups a user is in")
+@app_commands.describe(username="Roblox username")
+async def roblox_user_groups(interaction: discord.Interaction, username: str):
+    await interaction.response.defer()
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            "https://users.roblox.com/v1/usernames/users",
+            json={"usernames": [username], "excludeBannedUsers": False},
+            timeout=aiohttp.ClientTimeout(total=8),
+        ) as r:
+            udata = await r.json() if r.status == 200 else {}
+        users = udata.get("data", [])
+        if not users:
+            await interaction.followup.send(f"❌ User **{username}** not found.", ephemeral=True)
+            return
+        uid = users[0]["id"]
+        display = users[0].get("displayName", username)
+
+        async with session.get(
+            f"https://groups.roblox.com/v2/users/{uid}/groups/roles?includeLocked=false",
+            timeout=aiohttp.ClientTimeout(total=8),
+        ) as r:
+            gdata = await r.json() if r.status == 200 else {}
+
+    groups = gdata.get("data", [])
+    embed = discord.Embed(
+        title=f"🏘️ {display}'s Groups ({len(groups)} total)",
+        url=f"https://www.roblox.com/users/{uid}/profile",
+        color=discord.Color.from_rgb(226, 35, 26),
+    )
+    if not groups:
+        embed.description = "This user is not in any groups, or their groups are private."
+    else:
+        for entry in groups[:15]:
+            g    = entry.get("group", {})
+            role = entry.get("role", {})
+            gname = g.get("name", "?")
+            gid   = g.get("id", 0)
+            rname = role.get("name", "Member")
+            embed.add_field(
+                name=f"[{gname}](https://www.roblox.com/groups/{gid})",
+                value=f"Role: **{rname}** • {g.get('memberCount', 0):,} members",
+                inline=False,
+            )
+    embed.set_footer(text=f"User ID: {uid}")
+    await interaction.followup.send(embed=embed)
+
+# ── /robloxrap <username> — collectibles & RAP ────────────────────────────────
+@bot.tree.command(name="robloxrap", description="Show a Roblox user's limited items and total RAP")
+@app_commands.describe(username="Roblox username")
+async def roblox_rap(interaction: discord.Interaction, username: str):
+    await interaction.response.defer()
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            "https://users.roblox.com/v1/usernames/users",
+            json={"usernames": [username], "excludeBannedUsers": False},
+            timeout=aiohttp.ClientTimeout(total=8),
+        ) as r:
+            udata = await r.json() if r.status == 200 else {}
+        users = udata.get("data", [])
+        if not users:
+            await interaction.followup.send(f"❌ User **{username}** not found.", ephemeral=True)
+            return
+        uid = users[0]["id"]
+        display = users[0].get("displayName", username)
+
+        async with session.get(
+            f"https://inventory.roblox.com/v1/users/{uid}/assets/collectibles"
+            f"?sortOrder=Desc&limit=100",
+            timeout=aiohttp.ClientTimeout(total=8),
+        ) as r:
+            cdata = await r.json() if r.status == 200 else {}
+
+    items = cdata.get("data", [])
+    if not items:
+        await interaction.followup.send(
+            f"❌ **{display}** has no collectibles, or their inventory is private.", ephemeral=True
+        )
+        return
+
+    total_rap = sum(i.get("recentAveragePrice", 0) for i in items)
+    embed = discord.Embed(
+        title=f"💎 {display}'s Limiteds — R${total_rap:,} RAP",
+        url=f"https://www.roblox.com/users/{uid}/profile",
+        color=discord.Color.gold(),
+    )
+    for item in items[:10]:
+        rap  = item.get("recentAveragePrice", 0)
+        name = item.get("name", "?")
+        embed.add_field(
+            name=name,
+            value=f"💰 RAP: R${rap:,}",
+            inline=True,
+        )
+    if len(items) > 10:
+        embed.set_footer(text=f"Showing 10 of {len(items)} limiteds • User ID: {uid}")
+    else:
+        embed.set_footer(text=f"{len(items)} limiteds • User ID: {uid}")
+    await interaction.followup.send(embed=embed)
+
+# ── /robloxserver <game name> — active game servers ───────────────────────────
+@bot.tree.command(name="robloxserver", description="Show active servers for a Roblox game")
+@app_commands.describe(game="Roblox game name to search")
+async def roblox_server(interaction: discord.Interaction, game: str):
+    await interaction.response.defer()
+    async with aiohttp.ClientSession() as session:
+        # Search for the game first
+        async with session.get(
+            f"https://games.roblox.com/v1/games/list?model.keyword={game.replace(' ', '+')}&model.maxRows=1",
+            timeout=aiohttp.ClientTimeout(total=8),
+        ) as r:
+            sdata = await r.json() if r.status == 200 else {}
+
+        games = sdata.get("games", [])
+        if not games:
+            await interaction.followup.send(f"❌ No game found for **{game}**.", ephemeral=True)
+            return
+
+        g         = games[0]
+        place_id  = g.get("placeId") or g.get("rootPlaceId")
+        game_name = g.get("name", game)
+        players   = g.get("playerCount", 0)
+
+        # Get public server list
+        async with session.get(
+            f"https://games.roblox.com/v1/games/{place_id}/servers/Public?sortOrder=Desc&limit=10",
+            timeout=aiohttp.ClientTimeout(total=8),
+        ) as r:
+            svdata = await r.json() if r.status == 200 else {}
+
+    servers = svdata.get("data", [])
+    embed = discord.Embed(
+        title=f"🖥️ {game_name} — Active Servers",
+        url=f"https://www.roblox.com/games/{place_id}",
+        color=discord.Color.from_rgb(226, 35, 26),
+        description=f"**{players:,}** players online across all servers.",
+    )
+    if not servers:
+        embed.add_field(name="No public servers found", value="The game may have no active servers or servers are private.", inline=False)
+    else:
+        for i, sv in enumerate(servers[:8], 1):
+            playing = sv.get("playing", 0)
+            maximum = sv.get("maxPlayers", 0)
+            ping    = sv.get("ping", 0)
+            fps     = round(sv.get("fps", 0), 1)
+            bar_filled = int((playing / maximum * 8)) if maximum else 0
+            bar = "█" * bar_filled + "░" * (8 - bar_filled)
+            embed.add_field(
+                name=f"Server #{i}",
+                value=f"`{bar}` {playing}/{maximum}\n📶 {ping}ms • {fps} FPS",
+                inline=True,
+            )
+    embed.set_footer(text=f"Place ID: {place_id}")
+    await interaction.followup.send(embed=embed)
+
 # ═════════════════════════════════════════════════════════════════════════════
 # SECTION 9 — CUSTOM COMMANDS & AUTO-MODERATION
 # ═════════════════════════════════════════════════════════════════════════════

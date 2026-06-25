@@ -2,6 +2,8 @@ import os
 import json
 import random
 import datetime
+import asyncio
+import aiohttp
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
@@ -59,6 +61,52 @@ async def write_stats():
     }
     save_json(STATS_FILE, stats)
 
+# ── YouTube live status ───────────────────────────────────────────────────────
+YOUTUBE_CHANNEL_HANDLE = "@JaxonRoblo"
+YOUTUBE_CHANNEL_URL    = "https://www.youtube.com/@JaxonRoblo/live"
+_yt_was_live = False
+
+@tasks.loop(minutes=3)
+async def check_youtube_live():
+    """Poll YouTube every 3 minutes; switch bot status when live."""
+    global _yt_was_live
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        )
+    }
+    try:
+        async with aiohttp.ClientSession(headers=headers) as session:
+            async with session.get(YOUTUBE_CHANNEL_URL, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                text = await resp.text()
+        # YouTube embeds `"isLiveBroadcast"` in the page JSON-LD when the
+        # channel is actively streaming.
+        is_live = '"isLiveBroadcast"' in text and '"LIVE"' in text
+        if is_live and not _yt_was_live:
+            _yt_was_live = True
+            await bot.change_presence(
+                status=discord.Status.online,
+                activity=discord.Streaming(
+                    name=f"{YOUTUBE_CHANNEL_HANDLE} is LIVE on YouTube! 🔴",
+                    url=YOUTUBE_CHANNEL_URL,
+                ),
+            )
+            print("YouTube: JaxonRoblo went live — bot set to streaming.")
+        elif not is_live and _yt_was_live:
+            _yt_was_live = False
+            await bot.change_presence(
+                activity=discord.Activity(type=discord.ActivityType.watching, name="over the server 👀")
+            )
+            print("YouTube: JaxonRoblo stream ended — bot status restored.")
+    except Exception as e:
+        print(f"YouTube live check error: {e}")
+
+@check_youtube_live.before_loop
+async def before_yt_check():
+    await bot.wait_until_ready()
+
 @bot.event
 async def on_ready():
     global BOT_START_TIME
@@ -68,6 +116,7 @@ async def on_ready():
     )
     print(f"Logged in as {bot.user.name}")
     write_stats.start()
+    check_youtube_live.start()
 
 # ── Owner check ───────────────────────────────────────────────────────────────
 BOT_ADMIN_ID = 1481589775507918942
@@ -1278,8 +1327,8 @@ async def on_interaction(interaction: discord.Interaction):
                 await interaction.response.send_message(cmd["response"])
                 return  # handled — tree has nothing scheduled for this command
 
-    # Always let the tree run its scheduled callbacks for built-in commands
-    await bot.tree.call_scheduled_callbacks(interaction)
+    # Built-in slash commands are processed automatically by the tree
+    # before on_interaction fires — no extra call needed here.
 
 @bot.event
 async def on_command_error(ctx, error):

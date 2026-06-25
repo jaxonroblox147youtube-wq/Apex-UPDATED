@@ -1652,6 +1652,86 @@ async def roblox_roles(interaction: discord.Interaction):
     embed.set_footer(text=f"Group ID: {ROBLOX_GROUP_ID}")
     await interaction.followup.send(embed=embed)
 
+# ── /robloxgame <name> — search Roblox games ─────────────────────────────────
+@bot.tree.command(name="robloxgame", description="Search for a Roblox game and show its info")
+@app_commands.describe(name="Name of the Roblox game to search for")
+async def roblox_game(interaction: discord.Interaction, name: str):
+    await interaction.response.defer()
+    async with aiohttp.ClientSession() as session:
+        # 1. Search for games
+        search_url = (
+            f"https://games.roblox.com/v1/games/list"
+            f"?model.keyword={name.replace(' ', '+')}"
+            f"&model.maxRows=6&model.startRows=0"
+            f"&model.includeNotAllGames=false"
+        )
+        async with session.get(search_url, timeout=aiohttp.ClientTimeout(total=8)) as r:
+            sdata = await r.json() if r.status == 200 else {}
+
+        games = sdata.get("games", [])
+        if not games:
+            await interaction.followup.send(f"❌ No Roblox games found for **{name}**.", ephemeral=True)
+            return
+
+        game = games[0]
+        universe_id = game.get("universeId") or game.get("id")
+        place_id    = game.get("placeId") or game.get("rootPlaceId")
+        title       = game.get("name", "Unknown")
+        creator     = game.get("creatorName", "Unknown")
+        players     = game.get("playerCount", 0)
+        visits      = game.get("totalUpVotes", 0)   # fallback
+        likes       = game.get("totalUpVotes", 0)
+        dislikes    = game.get("totalDownVotes", 0)
+
+        # 2. Get full game details for visits / description
+        detail_url = f"https://games.roblox.com/v1/games?universeIds={universe_id}"
+        async with session.get(detail_url, timeout=aiohttp.ClientTimeout(total=8)) as r:
+            ddata = await r.json() if r.status == 200 else {}
+        detail = (ddata.get("data") or [{}])[0]
+        visits      = detail.get("visits", visits)
+        description = (detail.get("description") or "No description.")[:200]
+        max_players = detail.get("maxPlayers", "?")
+        genre       = detail.get("genre", "?")
+
+        # 3. Get game thumbnail
+        thumb_url = None
+        if universe_id:
+            async with session.get(
+                f"https://thumbnails.roblox.com/v1/games/multiget/thumbnails"
+                f"?universeIds={universe_id}&size=768x432&format=Png&isCircular=false",
+                timeout=aiohttp.ClientTimeout(total=8),
+            ) as r:
+                tdata = await r.json() if r.status == 200 else {}
+            thumbs = (tdata.get("data") or [{}])[0].get("thumbnails", [])
+            if thumbs and thumbs[0].get("state") == "Completed":
+                thumb_url = thumbs[0]["imageUrl"]
+
+    play_url = f"https://www.roblox.com/games/{place_id}" if place_id else f"https://www.roblox.com"
+
+    def _fmt(n: int) -> str:
+        if n >= 1_000_000: return f"{n/1_000_000:.1f}M"
+        if n >= 1_000:     return f"{n/1_000:.1f}K"
+        return str(n)
+
+    embed = discord.Embed(
+        title=title,
+        url=play_url,
+        description=description,
+        color=discord.Color.from_rgb(226, 35, 26),
+    )
+    embed.set_author(name=f"By {creator}")
+    embed.add_field(name="🟢 Playing",    value=str(players),      inline=True)
+    embed.add_field(name="👁️ Visits",     value=_fmt(visits),      inline=True)
+    embed.add_field(name="👥 Max Players",value=str(max_players),  inline=True)
+    embed.add_field(name="🎮 Genre",      value=genre,             inline=True)
+    embed.add_field(name="👍 Likes",      value=_fmt(likes),       inline=True)
+    embed.add_field(name="👎 Dislikes",   value=_fmt(dislikes),    inline=True)
+    embed.add_field(name="▶️ Play Now",   value=f"[Open in Roblox]({play_url})", inline=False)
+    if thumb_url:
+        embed.set_image(url=thumb_url)
+    embed.set_footer(text="Roblox • roblox.com")
+    await interaction.followup.send(embed=embed)
+
 # ═════════════════════════════════════════════════════════════════════════════
 # SECTION 9 — CUSTOM COMMANDS & AUTO-MODERATION
 # ═════════════════════════════════════════════════════════════════════════════

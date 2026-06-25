@@ -1,6 +1,8 @@
 import os
 import json
 import random
+import re
+import xml.etree.ElementTree as ET
 import datetime
 import asyncio
 import aiohttp
@@ -61,49 +63,153 @@ async def write_stats():
     }
     save_json(STATS_FILE, stats)
 
-# ── YouTube live status ───────────────────────────────────────────────────────
-YOUTUBE_CHANNEL_HANDLE = "@JaxonRoblo"
-YOUTUBE_CHANNEL_URL    = "https://www.youtube.com/@JaxonRoblo/live"
-_yt_was_live = False
+# ── YouTube notification config ───────────────────────────────────────────────
+YOUTUBE_HANDLE       = "@JaxonRoblo"
+YOUTUBE_LIVE_URL     = "https://www.youtube.com/@JaxonRoblo/live"
+YOUTUBE_CHANNEL_PAGE = "https://www.youtube.com/@JaxonRoblo"
+NOTIFY_SERVER_NAME   = "Meteor Run"          # partial match, case-insensitive
+NOTIFY_CHANNEL_KEYWORDS = ["video", "upload"] # channel must contain both words
+
+_yt_was_live      = False
+_last_video_id    = None   # tracks newest upload from RSS
+_yt_channel_id    = None   # resolved once at startup
+_yt_live_title    = None   # title of current live stream
+
+YT_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    )
+}
+
+async def _resolve_yt_channel_id(session: aiohttp.ClientSession) -> str | None:
+    """Fetch the UCxxxxx channel ID from the @handle page (needed for RSS)."""
+    try:
+        async with session.get(YOUTUBE_CHANNEL_PAGE, timeout=aiohttp.ClientTimeout(total=10)) as r:
+            text = await r.text()
+        m = re.search(r'"channelId"\s*:\s*"(UC[A-Za-z0-9_-]+)"', text)
+        return m.group(1) if m else None
+    except Exception:
+        return None
+
+def _find_notify_channel() -> discord.TextChannel | None:
+    """Search bot guilds for the Meteor Run server + video uploads channel."""
+    for guild in bot.guilds:
+        if NOTIFY_SERVER_NAME.lower() not in guild.name.lower():
+            continue
+        for ch in guild.text_channels:
+            name = ch.name.lower()
+            if all(kw in name for kw in NOTIFY_CHANNEL_KEYWORDS):
+                return ch
+        # Fallback: any channel with 'video' OR 'upload'
+        for ch in guild.text_channels:
+            if any(kw in ch.name.lower() for kw in NOTIFY_CHANNEL_KEYWORDS):
+                return ch
+    return None
+
+async def _send_yt_notification(channel: discord.TextChannel, *, is_live: bool, title: str, url: str):
+    """Post the @everyone embed to the notification channel."""
+    if is_live:
+        headline = "🔴 Jaxon Has Gone **LIVE** on YouTube!"
+        colour   = discord.Color.red()
+        label    = "Watch Now 🔴"
+    else:
+        headline = "📹 Jaxon Just Posted a New Video!"
+        colour   = discord.Color.purple()
+        label    = "Watch Now ▶️"
+
+    embed = discord.Embed(
+        title=title,
+        url=url,
+        description=f"[{label}]({url})",
+        color=colour,
+    )
+    embed.set_author(name="JaxonRoblo", url=YOUTUBE_CHANNEL_PAGE)
+    embed.set_footer(text="YouTube • " + datetime.datetime.utcnow().strftime("%b %d, %Y"))
+
+    await channel.send(f"@everyone {headline}", embed=embed, allowed_mentions=discord.AllowedMentions(everyone=True))
 
 @tasks.loop(minutes=3)
-async def check_youtube_live():
-    """Poll YouTube every 3 minutes; switch bot status when live."""
-    global _yt_was_live
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/124.0.0.0 Safari/537.36"
-        )
-    }
-    try:
-        async with aiohttp.ClientSession(headers=headers) as session:
-            async with session.get(YOUTUBE_CHANNEL_URL, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                text = await resp.text()
-        # YouTube embeds `"isLiveBroadcast"` in the page JSON-LD when the
-        # channel is actively streaming.
-        is_live = '"isLiveBroadcast"' in text and '"LIVE"' in text
-        if is_live and not _yt_was_live:
-            _yt_was_live = True
-            await bot.change_presence(
-                status=discord.Status.online,
-                activity=discord.Streaming(
-                    name=f"{YOUTUBE_CHANNEL_HANDLE} is LIVE on YouTube! 🔴",
-                    url=YOUTUBE_CHANNEL_URL,
-                ),
-            )
-            print("YouTube: JaxonRoblo went live — bot set to streaming.")
-        elif not is_live and _yt_was_live:
-            _yt_was_live = False
-            await bot.change_presence(
-                activity=discord.Activity(type=discord.ActivityType.watching, name="over the server 👀")
-            )
-            print("YouTube: JaxonRoblo stream ended — bot status restored.")
-    except Exception as e:
-        print(f"YouTube live check error: {e}")
+async def check_youtube():
+    """Every 3 min: detect live streams + new uploads, post to Meteor Run."""
+    global _yt_was_live, _last_video_id, _yt_channel_id, _yt_live_title
 
-@check_youtube_live.before_loop
+    try:
+        async with aiohttp.ClientSession(headers=YT_HEADERS) as session:
+
+            # ── 1. Resolve channel ID once ────────────────────────────────────
+            if not _yt_channel_id:
+                _yt_channel_id = await _resolve_yt_channel_id(session)
+                print(f"YouTube channel ID resolved: {_yt_channel_id}")
+
+            # ── 2. Check for live stream ──────────────────────────────────────
+            async with session.get(YOUTUBE_LIVE_URL, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=10)) as r:
+                live_page = await r.text()
+
+            is_live = '"isLiveBroadcast"' in live_page and '"LIVE"' in live_page
+
+            if is_live and not _yt_was_live:
+                _yt_was_live = True
+                # Extract stream title
+                tm = re.search(r'"title"\s*:\s*\{"runs"\s*:\s*\[\{"text"\s*:\s*"([^"]+)"', live_page)
+                if not tm:
+                    tm = re.search(r'<title>([^<]+)</title>', live_page)
+                live_title = tm.group(1) if tm else "Live Stream"
+                _yt_live_title = live_title
+
+                # Bot presence → streaming
+                await bot.change_presence(
+                    status=discord.Status.online,
+                    activity=discord.Streaming(name=f"{YOUTUBE_HANDLE} is LIVE! 🔴", url=YOUTUBE_LIVE_URL),
+                )
+
+                # Notify Discord channel
+                ch = _find_notify_channel()
+                if ch:
+                    await _send_yt_notification(ch, is_live=True, title=live_title, url=YOUTUBE_LIVE_URL)
+                print(f"YouTube: LIVE — '{live_title}'")
+
+            elif not is_live and _yt_was_live:
+                _yt_was_live = False
+                _yt_live_title = None
+                await bot.change_presence(
+                    activity=discord.Activity(type=discord.ActivityType.watching, name="over the server 👀")
+                )
+                print("YouTube: stream ended — presence restored.")
+
+            # ── 3. Check for new uploads via RSS ─────────────────────────────
+            if _yt_channel_id:
+                rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={_yt_channel_id}"
+                async with session.get(rss_url, timeout=aiohttp.ClientTimeout(total=10)) as r:
+                    rss_text = await r.text()
+
+                root = ET.fromstring(rss_text)
+                ns   = {"atom": "http://www.w3.org/2005/Atom", "yt": "http://www.youtube.com/xml/schemas/2015"}
+                entries = root.findall("atom:entry", ns)
+                if entries:
+                    latest = entries[0]
+                    vid_id  = (latest.find("yt:videoId", ns) or type("", (), {"text": None})()).text
+                    vid_title_el = latest.find("atom:title", ns)
+                    vid_title = vid_title_el.text if vid_title_el is not None else "New Video"
+                    vid_link_el  = latest.find("atom:link", ns)
+                    vid_url   = vid_link_el.get("href") if vid_link_el is not None else f"https://youtu.be/{vid_id}"
+
+                    if _last_video_id is None:
+                        # First run — just record baseline, no notification
+                        _last_video_id = vid_id
+                    elif vid_id != _last_video_id and not is_live:
+                        # New upload (skip if we're already live — same video)
+                        _last_video_id = vid_id
+                        ch = _find_notify_channel()
+                        if ch:
+                            await _send_yt_notification(ch, is_live=False, title=vid_title, url=vid_url)
+                        print(f"YouTube: new upload — '{vid_title}'")
+
+    except Exception as e:
+        print(f"YouTube check error: {e}")
+
+@check_youtube.before_loop
 async def before_yt_check():
     await bot.wait_until_ready()
 
@@ -116,7 +222,7 @@ async def on_ready():
     )
     print(f"Logged in as {bot.user.name}")
     write_stats.start()
-    check_youtube_live.start()
+    check_youtube.start()
 
 # ── Owner check ───────────────────────────────────────────────────────────────
 BOT_ADMIN_ID = 1481589775507918942

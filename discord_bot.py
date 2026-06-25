@@ -71,6 +71,8 @@ NOTIFY_SERVER_NAME   = "Meteor Run"          # partial match, case-insensitive
 NOTIFY_CHANNEL_KEYWORDS = ["video", "upload"] # channel must contain both words
 
 _yt_was_live      = False
+_yt_was_scheduled = False
+_scheduled_msg: discord.Message | None = None   # message to edit when live starts
 _last_video_id    = None   # tracks newest upload from RSS
 _yt_channel_id    = None   # resolved once at startup
 _yt_live_title    = None   # title of current live stream
@@ -108,13 +110,17 @@ def _find_notify_channel() -> discord.TextChannel | None:
                 return ch
     return None
 
-async def _send_yt_notification(channel: discord.TextChannel, *, is_live: bool, title: str, url: str):
-    """Post the @everyone embed to the notification channel."""
-    if is_live:
+def _make_embed(*, kind: str, title: str, url: str) -> tuple[str, discord.Embed]:
+    """Build the content string + embed for a given kind: scheduled | live | upload."""
+    if kind == "scheduled":
+        headline = "📅 Jaxon Has Made A **Scheduled Live** on YouTube!"
+        colour   = discord.Color.orange()
+        label    = "Set a Reminder 🔔"
+    elif kind == "live":
         headline = "🔴 Jaxon Has Gone **LIVE** on YouTube!"
         colour   = discord.Color.red()
         label    = "Watch Now 🔴"
-    else:
+    else:  # upload
         headline = "📹 Jaxon Just Posted a New Video!"
         colour   = discord.Color.purple()
         label    = "Watch Now ▶️"
@@ -127,13 +133,20 @@ async def _send_yt_notification(channel: discord.TextChannel, *, is_live: bool, 
     )
     embed.set_author(name="JaxonRoblo", url=YOUTUBE_CHANNEL_PAGE)
     embed.set_footer(text="YouTube • " + datetime.datetime.utcnow().strftime("%b %d, %Y"))
-
-    await channel.send(f"@everyone {headline}", embed=embed, allowed_mentions=discord.AllowedMentions(everyone=True))
+    return f"@everyone {headline}", embed
 
 @tasks.loop(minutes=3)
 async def check_youtube():
-    """Every 3 min: detect live streams + new uploads, post to Meteor Run."""
-    global _yt_was_live, _last_video_id, _yt_channel_id, _yt_live_title
+    """Every 3 min: detect live streams + new uploads, post to Meteor Run.
+
+    State machine:
+      nothing  →  scheduled  : post scheduled notification, store message ref
+      scheduled → live       : edit stored message to live version, switch presence
+      live      → nothing    : restore presence
+      scheduled → nothing    : clear state (stream cancelled)
+    """
+    global _yt_was_live, _yt_was_scheduled, _scheduled_msg
+    global _last_video_id, _yt_channel_id, _yt_live_title
 
     try:
         async with aiohttp.ClientSession(headers=YT_HEADERS) as session:
@@ -143,47 +156,78 @@ async def check_youtube():
                 _yt_channel_id = await _resolve_yt_channel_id(session)
                 print(f"YouTube channel ID resolved: {_yt_channel_id}")
 
-            # ── 2. Check for live stream ──────────────────────────────────────
+            # ── 2. Fetch live page & classify state ───────────────────────────
             async with session.get(YOUTUBE_LIVE_URL, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=10)) as r:
                 live_page = await r.text()
 
-            # "upcomingEventData" is in the page for scheduled/waiting streams.
-            # "watching now" only appears once the stream is actually broadcasting.
-            is_scheduled = '"upcomingEventData"' in live_page
-            is_live = (
-                '"isLiveBroadcast"' in live_page
-                and not is_scheduled
-                and 'watching now' in live_page.lower()
-            )
+            has_broadcast  = '"isLiveBroadcast"' in live_page
+            is_scheduled   = has_broadcast and '"upcomingEventData"' in live_page
+            is_live        = has_broadcast and not is_scheduled and 'watching now' in live_page.lower()
 
-            if is_live and not _yt_was_live:
-                _yt_was_live = True
-                # Extract stream title
-                tm = re.search(r'"title"\s*:\s*\{"runs"\s*:\s*\[\{"text"\s*:\s*"([^"]+)"', live_page)
-                if not tm:
-                    tm = re.search(r'<title>([^<]+)</title>', live_page)
-                live_title = tm.group(1) if tm else "Live Stream"
-                _yt_live_title = live_title
+            # Helper: extract stream title from page
+            def _extract_title(page: str, fallback: str) -> str:
+                m = re.search(r'"title"\s*:\s*\{"runs"\s*:\s*\[\{"text"\s*:\s*"([^"]+)"', page)
+                if not m:
+                    m = re.search(r'<title>([^<]+)</title>', page)
+                return m.group(1).replace(" - YouTube", "").strip() if m else fallback
 
-                # Bot presence → streaming
+            # ── 3. State transitions ─────────────────────────────────────────
+
+            # nothing → scheduled
+            if is_scheduled and not _yt_was_scheduled and not _yt_was_live:
+                _yt_was_scheduled = True
+                title = _extract_title(live_page, "Upcoming Live Stream")
+                _yt_live_title = title
+                ch = _find_notify_channel()
+                if ch:
+                    content, embed = _make_embed(kind="scheduled", title=title, url=YOUTUBE_LIVE_URL)
+                    _scheduled_msg = await ch.send(content, embed=embed, allowed_mentions=discord.AllowedMentions(everyone=True))
+                print(f"YouTube: scheduled — '{title}'")
+
+            # scheduled OR nothing → actually live
+            elif is_live and not _yt_was_live:
+                _yt_was_live      = True
+                _yt_was_scheduled = False
+                title = _extract_title(live_page, "Live Stream")
+                _yt_live_title = title
+
+                # Switch bot to streaming presence
                 await bot.change_presence(
                     status=discord.Status.online,
                     activity=discord.Streaming(name=f"{YOUTUBE_HANDLE} is LIVE! 🔴", url=YOUTUBE_LIVE_URL),
                 )
 
-                # Notify Discord channel
-                ch = _find_notify_channel()
-                if ch:
-                    await _send_yt_notification(ch, is_live=True, title=live_title, url=YOUTUBE_LIVE_URL)
-                print(f"YouTube: LIVE — '{live_title}'")
+                # Edit existing scheduled msg → live, or send fresh if none
+                content, embed = _make_embed(kind="live", title=title, url=YOUTUBE_LIVE_URL)
+                if _scheduled_msg:
+                    try:
+                        await _scheduled_msg.edit(content=content, embed=embed)
+                        _scheduled_msg = None
+                    except Exception:
+                        ch = _find_notify_channel()
+                        if ch:
+                            await ch.send(content, embed=embed, allowed_mentions=discord.AllowedMentions(everyone=True))
+                else:
+                    ch = _find_notify_channel()
+                    if ch:
+                        await ch.send(content, embed=embed, allowed_mentions=discord.AllowedMentions(everyone=True))
+                print(f"YouTube: LIVE — '{title}'")
 
-            elif not is_live and _yt_was_live:
-                _yt_was_live = False
+            # live → nothing (stream ended)
+            elif _yt_was_live and not is_live and not is_scheduled:
+                _yt_was_live   = False
                 _yt_live_title = None
+                _scheduled_msg = None
                 await bot.change_presence(
                     activity=discord.Activity(type=discord.ActivityType.watching, name="over the server 👀")
                 )
                 print("YouTube: stream ended — presence restored.")
+
+            # scheduled → nothing (cancelled before going live)
+            elif _yt_was_scheduled and not is_scheduled and not is_live:
+                _yt_was_scheduled = False
+                _scheduled_msg    = None
+                print("YouTube: scheduled stream was cancelled.")
 
             # ── 3. Check for new uploads via RSS ─────────────────────────────
             if _yt_channel_id:

@@ -86,14 +86,28 @@ YT_HEADERS = {
 }
 
 async def _resolve_yt_channel_id(session: aiohttp.ClientSession) -> str | None:
-    """Fetch the UCxxxxx channel ID from the @handle page (needed for RSS)."""
-    try:
-        async with session.get(YOUTUBE_CHANNEL_PAGE, timeout=aiohttp.ClientTimeout(total=10)) as r:
-            text = await r.text()
-        m = re.search(r'"channelId"\s*:\s*"(UC[A-Za-z0-9_-]+)"', text)
-        return m.group(1) if m else None
-    except Exception:
-        return None
+    """Fetch the UCxxxxx channel ID from the @handle page (needed for RSS).
+    Tries several page variants and multiple regex patterns for resilience.
+    """
+    patterns = [
+        r'"channelId"\s*:\s*"(UC[A-Za-z0-9_-]{22})"',
+        r'"externalChannelId"\s*:\s*"(UC[A-Za-z0-9_-]{22})"',
+        r'channel/(UC[A-Za-z0-9_-]{22})',
+        r'"browseId"\s*:\s*"(UC[A-Za-z0-9_-]{22})"',
+        r'<link rel="canonical" href="https://www\.youtube\.com/channel/(UC[A-Za-z0-9_-]{22})"',
+    ]
+    urls_to_try = [YOUTUBE_CHANNEL_PAGE, YOUTUBE_LIVE_URL, f"{YOUTUBE_CHANNEL_PAGE}/about"]
+    for url in urls_to_try:
+        try:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=12)) as r:
+                text = await r.text()
+            for pat in patterns:
+                m = re.search(pat, text)
+                if m:
+                    return m.group(1)
+        except Exception:
+            continue
+    return None
 
 def _find_notify_channel() -> discord.TextChannel | None:
     """Search bot guilds for the Meteor Run server + video uploads channel."""
@@ -162,7 +176,13 @@ async def check_youtube():
 
             has_broadcast  = '"isLiveBroadcast"' in live_page
             is_scheduled   = has_broadcast and '"upcomingEventData"' in live_page
-            is_live        = has_broadcast and not is_scheduled and 'watching now' in live_page.lower()
+            _live_signals  = (
+                'watching now' in live_page.lower() or
+                '"isLiveNow":true' in live_page or
+                '"liveBadge"' in live_page or
+                'live viewers' in live_page.lower()
+            )
+            is_live        = has_broadcast and not is_scheduled and _live_signals
 
             # Helper: extract stream title from page
             def _extract_title(page: str, fallback: str) -> str:

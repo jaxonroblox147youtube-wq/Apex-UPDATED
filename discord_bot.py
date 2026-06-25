@@ -147,7 +147,14 @@ async def check_youtube():
             async with session.get(YOUTUBE_LIVE_URL, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=10)) as r:
                 live_page = await r.text()
 
-            is_live = '"isLiveBroadcast"' in live_page and '"LIVE"' in live_page
+            # "upcomingEventData" is in the page for scheduled/waiting streams.
+            # "watching now" only appears once the stream is actually broadcasting.
+            is_scheduled = '"upcomingEventData"' in live_page
+            is_live = (
+                '"isLiveBroadcast"' in live_page
+                and not is_scheduled
+                and 'watching now' in live_page.lower()
+            )
 
             if is_live and not _yt_was_live:
                 _yt_was_live = True

@@ -90,4 +90,54 @@ router.get("/roblox/callback", async (req, res) => {
   }
 });
 
+// GET /api/privacy
+router.get("/privacy", (_req, res) => {
+  res.send(`<!DOCTYPE html><html><head><title>Privacy Policy — Apex Bot</title>
+<style>body{font-family:sans-serif;max-width:700px;margin:60px auto;padding:0 20px;background:#111;color:#ccc;line-height:1.7}h1,h2{color:#fff}a{color:#5865f2}</style>
+</head><body>
+<h1>Privacy Policy</h1>
+<p><strong>Last updated:</strong> June 2025</p>
+<p>Apex Bot ("the Bot") is a Discord bot that integrates with Roblox. This policy explains what data we collect and how it is used.</p>
+<h2>Data We Collect</h2>
+<ul>
+  <li><strong>Discord User IDs</strong> — used to link your Discord account to your Roblox account.</li>
+  <li><strong>Roblox OAuth Tokens</strong> — stored locally on the server to perform actions on your behalf (group announcements, role management) only when you use the relevant commands.</li>
+  <li><strong>Guild (Server) Settings</strong> — automod rules, custom commands, and YouTube notification preferences set by server administrators.</li>
+</ul>
+<h2>Data We Do Not Collect</h2>
+<p>We do not collect message content, passwords, payment information, or any personal information beyond what is listed above.</p>
+<h2>Data Sharing</h2>
+<p>We do not sell, share, or transmit your data to any third parties. Data is only used to power the Bot's features within your Discord server.</p>
+<h2>Data Deletion</h2>
+<p>You can unlink your Roblox account at any time using <code>/robloxunlink</code> in Discord, which removes your stored tokens immediately.</p>
+<h2>Contact</h2>
+<p>For questions, contact the bot owner via Discord.</p>
+</body></html>`);
+});
+
+// GET /api/terms
+router.get("/terms", (_req, res) => {
+  res.send(`<!DOCTYPE html><html><head><title>Terms of Service — Apex Bot</title>
+<style>body{font-family:sans-serif;max-width:700px;margin:60px auto;padding:0 20px;background:#111;color:#ccc;line-height:1.7}h1,h2{color:#fff}a{color:#5865f2}</style>
+</head><body>
+<h1>Terms of Service</h1>
+<p><strong>Last updated:</strong> June 2025</p>
+<p>By using Apex Bot ("the Bot"), you agree to the following terms.</p>
+<h2>Acceptable Use</h2>
+<ul>
+  <li>You must comply with <a href="https://discord.com/terms" target="_blank">Discord's Terms of Service</a> and <a href="https://en.help.roblox.com/hc/en-us/articles/115004647846" target="_blank">Roblox's Terms of Use</a>.</li>
+  <li>You may not use the Bot for harassment, spam, or any illegal activity.</li>
+  <li>Server administrators are responsible for configuring the Bot appropriately for their community.</li>
+</ul>
+<h2>Roblox Integration</h2>
+<p>By authorizing the Bot with your Roblox account, you grant it permission to perform actions you explicitly request (such as group announcements and role assignments). You may revoke this access at any time.</p>
+<h2>Availability</h2>
+<p>The Bot is provided "as-is" with no uptime guarantees. We reserve the right to modify or discontinue features at any time.</p>
+<h2>Limitation of Liability</h2>
+<p>The Bot owner is not liable for any damages resulting from the use or inability to use the Bot.</p>
+<h2>Contact</h2>
+<p>For questions or concerns, contact the bot owner via Discord.</p>
+</body></html>`);
+});
+
 export default router;

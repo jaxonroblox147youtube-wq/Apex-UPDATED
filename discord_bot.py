@@ -1367,7 +1367,293 @@ async def battle(interaction: discord.Interaction, opponent: discord.Member):
     await interaction.response.send_message(embed=embed)
 
 # ═════════════════════════════════════════════════════════════════════════════
-# SECTION 8 — CUSTOM COMMANDS & AUTO-MODERATION
+# SECTION 8 — ROBLOX COMMANDS
+# ═════════════════════════════════════════════════════════════════════════════
+
+ROBLOX_CLIENT_ID     = os.getenv("ROBLOX_CLIENT_ID",     "YOUR_ROBLOX_CLIENT_ID_HERE")
+ROBLOX_CLIENT_SECRET = os.getenv("ROBLOX_CLIENT_SECRET", "YOUR_ROBLOX_CLIENT_SECRET_HERE")
+ROBLOX_GROUP_ID      = os.getenv("ROBLOX_GROUP_ID",      "YOUR_ROBLOX_GROUP_ID_HERE")
+ROBLOX_TOKENS_FILE   = "roblox_tokens.json"
+
+# Callback URL must be registered in your Roblox OAuth app settings.
+# Set this to your deployed API server URL + /api/roblox/callback
+ROBLOX_REDIRECT_URI  = os.getenv(
+    "ROBLOX_REDIRECT_URI",
+    "https://discord-bot-script--jaxonmarshall98.replit.app/api/roblox/callback"
+)
+
+async def _roblox_get(session: aiohttp.ClientSession, url: str, token: str | None = None) -> dict:
+    headers = {"Accept": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=8)) as r:
+        if r.status != 200:
+            return {}
+        return await r.json()
+
+async def _roblox_post(session: aiohttp.ClientSession, url: str, json_body: dict, token: str | None = None) -> dict:
+    headers = {"Accept": "application/json", "Content-Type": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    async with session.post(url, json=json_body, headers=headers, timeout=aiohttp.ClientTimeout(total=8)) as r:
+        try:
+            return await r.json()
+        except Exception:
+            return {}
+
+def _load_roblox_token(discord_id: int) -> str | None:
+    data = load_json(ROBLOX_TOKENS_FILE) or {}
+    entry = data.get(str(discord_id))
+    return entry.get("access_token") if entry else None
+
+# ── /roblox <username> — public profile lookup ────────────────────────────────
+@bot.tree.command(name="roblox", description="Look up a Roblox user's profile and avatar")
+@app_commands.describe(username="Roblox username to search")
+async def roblox_lookup(interaction: discord.Interaction, username: str):
+    await interaction.response.defer()
+    async with aiohttp.ClientSession() as session:
+        # 1. Resolve username → user ID via POST endpoint
+        async with session.post(
+            "https://users.roblox.com/v1/usernames/users",
+            json={"usernames": [username], "excludeBannedUsers": False},
+            headers={"Content-Type": "application/json"},
+            timeout=aiohttp.ClientTimeout(total=8),
+        ) as r:
+            data = await r.json() if r.status == 200 else {}
+
+        results = data.get("data", [])
+        if not results:
+            await interaction.followup.send(f"❌ No Roblox user found for **{username}**.", ephemeral=True)
+            return
+
+        user = results[0]
+        uid  = user["id"]
+
+        # 2. Full profile
+        profile = await _roblox_get(session, f"https://users.roblox.com/v1/users/{uid}")
+
+        # 3. Avatar headshot thumbnail
+        thumb_data = await _roblox_get(
+            session,
+            f"https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds={uid}&size=420x420&format=Png&isCircular=false"
+        )
+        thumb_url = None
+        thumbs = thumb_data.get("data", [])
+        if thumbs and thumbs[0].get("state") == "Completed":
+            thumb_url = thumbs[0]["imageUrl"]
+
+        # 4. Friend / follower counts
+        friends = await _roblox_get(session, f"https://friends.roblox.com/v1/users/{uid}/friends/count")
+        followers = await _roblox_get(session, f"https://friends.roblox.com/v1/users/{uid}/followers/count")
+
+    display  = profile.get("displayName", user.get("displayName", username))
+    name     = profile.get("name", username)
+    desc     = profile.get("description", "") or "No bio."
+    if len(desc) > 200:
+        desc = desc[:197] + "..."
+    created  = profile.get("created", "")[:10] if profile.get("created") else "Unknown"
+    banned   = profile.get("isBanned", False)
+
+    embed = discord.Embed(
+        title=f"{'🚫 ' if banned else ''}**{display}** (@{name})",
+        url=f"https://www.roblox.com/users/{uid}/profile",
+        description=desc,
+        color=discord.Color.red() if banned else discord.Color.from_rgb(226, 35, 26),
+    )
+    embed.add_field(name="User ID",   value=str(uid),                        inline=True)
+    embed.add_field(name="Joined",    value=created,                         inline=True)
+    embed.add_field(name="Banned",    value="Yes ⛔" if banned else "No ✅",  inline=True)
+    embed.add_field(name="Friends",   value=str(friends.get("count", "?")),  inline=True)
+    embed.add_field(name="Followers", value=str(followers.get("count","?")), inline=True)
+    if thumb_url:
+        embed.set_thumbnail(url=thumb_url)
+    embed.set_footer(text="Roblox • roblox.com")
+    await interaction.followup.send(embed=embed)
+
+# ── /robloxlink — start OAuth flow ────────────────────────────────────────────
+@bot.tree.command(name="robloxlink", description="Link your Roblox account to this bot via Roblox OAuth")
+async def roblox_link(interaction: discord.Interaction):
+    if ROBLOX_CLIENT_ID.startswith("YOUR_"):
+        await interaction.response.send_message(
+            "⚙️ Roblox OAuth is not configured yet. Ask the bot owner to set up `ROBLOX_CLIENT_ID`.",
+            ephemeral=True,
+        )
+        return
+    import urllib.parse
+    state   = str(interaction.user.id)
+    scopes  = "openid profile group:read group:write"
+    params  = urllib.parse.urlencode({
+        "client_id":     ROBLOX_CLIENT_ID,
+        "redirect_uri":  ROBLOX_REDIRECT_URI,
+        "scope":         scopes,
+        "response_type": "code",
+        "state":         state,
+    })
+    auth_url = f"https://apis.roblox.com/oauth/v1/authorize?{params}"
+    embed = discord.Embed(
+        title="🔗 Link Your Roblox Account",
+        description=(
+            f"Click the button below to authorize the bot to access your Roblox account.\n\n"
+            f"[**Authorize on Roblox →**]({auth_url})\n\n"
+            f"Once you approve, your account will be linked and you can use `/robloxme`, "
+            f"`/robloxannounce`, and `/robloxrole`."
+        ),
+        color=discord.Color.from_rgb(226, 35, 26),
+    )
+    embed.set_footer(text="Your Roblox credentials are never stored — only the OAuth token.")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+# ── /robloxme — show your linked profile ─────────────────────────────────────
+@bot.tree.command(name="robloxme", description="Show your linked Roblox profile")
+async def roblox_me(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    token = _load_roblox_token(interaction.user.id)
+    if not token:
+        await interaction.followup.send(
+            "❌ You haven't linked your Roblox account yet. Use `/robloxlink` first.", ephemeral=True
+        )
+        return
+    async with aiohttp.ClientSession() as session:
+        me = await _roblox_get(session, "https://apis.roblox.com/oauth/v1/userinfo", token=token)
+    if not me:
+        await interaction.followup.send("❌ Couldn't fetch your Roblox profile. Try `/robloxlink` again.", ephemeral=True)
+        return
+    uid      = me.get("sub", "?")
+    name     = me.get("preferred_username", "Unknown")
+    display  = me.get("name", name)
+    pic      = me.get("picture", "")
+    embed = discord.Embed(
+        title=f"🎮 {display} (@{name})",
+        url=f"https://www.roblox.com/users/{uid}/profile",
+        color=discord.Color.from_rgb(226, 35, 26),
+    )
+    embed.add_field(name="Roblox ID", value=str(uid), inline=True)
+    embed.add_field(name="Linked as", value=interaction.user.mention, inline=True)
+    if pic:
+        embed.set_thumbnail(url=pic)
+    embed.set_footer(text="Linked via Roblox OAuth")
+    await interaction.followup.send(embed=embed, ephemeral=True)
+
+# ── /robloxannounce — post a group shout ─────────────────────────────────────
+@bot.tree.command(name="robloxannounce", description="Post an announcement/shout to your Roblox group (owner only)")
+@app_commands.describe(message="The announcement message to post")
+@app_commands.check(is_owner)
+async def roblox_announce(interaction: discord.Interaction, message: str):
+    await interaction.response.defer(ephemeral=True)
+    token = _load_roblox_token(interaction.user.id)
+    if not token:
+        await interaction.followup.send("❌ Link your Roblox account first with `/robloxlink`.", ephemeral=True)
+        return
+    if ROBLOX_GROUP_ID.startswith("YOUR_"):
+        await interaction.followup.send("⚙️ `ROBLOX_GROUP_ID` is not configured yet.", ephemeral=True)
+        return
+    async with aiohttp.ClientSession() as session:
+        result = await _roblox_post(
+            session,
+            f"https://groups.roblox.com/v1/groups/{ROBLOX_GROUP_ID}/status",
+            {"message": message},
+            token=token,
+        )
+    if result.get("body") == message or result.get("id"):
+        await interaction.followup.send(f"✅ Group shout posted:\n> {message}", ephemeral=True)
+    else:
+        await interaction.followup.send(
+            f"❌ Failed to post shout. Make sure you are the group owner and your account is linked.\n`{result}`",
+            ephemeral=True,
+        )
+
+# ── /robloxrole — give a Roblox group role by username ───────────────────────
+@bot.tree.command(name="robloxrole", description="Give a Roblox group role to a user by their Roblox username (owner only)")
+@app_commands.describe(username="Roblox username of the target user", rolename="Exact name of the group role to assign")
+@app_commands.check(is_owner)
+async def roblox_role(interaction: discord.Interaction, username: str, rolename: str):
+    await interaction.response.defer(ephemeral=True)
+    token = _load_roblox_token(interaction.user.id)
+    if not token:
+        await interaction.followup.send("❌ Link your Roblox account first with `/robloxlink`.", ephemeral=True)
+        return
+    if ROBLOX_GROUP_ID.startswith("YOUR_"):
+        await interaction.followup.send("⚙️ `ROBLOX_GROUP_ID` is not configured yet.", ephemeral=True)
+        return
+
+    async with aiohttp.ClientSession() as session:
+        # Resolve username → user ID
+        async with session.post(
+            "https://users.roblox.com/v1/usernames/users",
+            json={"usernames": [username]},
+            headers={"Content-Type": "application/json"},
+            timeout=aiohttp.ClientTimeout(total=8),
+        ) as r:
+            udata = await r.json() if r.status == 200 else {}
+        users = udata.get("data", [])
+        if not users:
+            await interaction.followup.send(f"❌ Roblox user **{username}** not found.", ephemeral=True)
+            return
+        uid = users[0]["id"]
+
+        # Get all group roles
+        roles_data = await _roblox_get(
+            session,
+            f"https://groups.roblox.com/v1/groups/{ROBLOX_GROUP_ID}/roles",
+        )
+        roles = roles_data.get("roles", [])
+        role  = next((r for r in roles if r["name"].lower() == rolename.lower()), None)
+        if not role:
+            names = ", ".join(r["name"] for r in roles)
+            await interaction.followup.send(
+                f"❌ Role **{rolename}** not found. Available roles: {names}", ephemeral=True
+            )
+            return
+        role_id = role["id"]
+
+        # Set the user's role
+        result = await _roblox_post(
+            session,
+            f"https://groups.roblox.com/v1/groups/{ROBLOX_GROUP_ID}/users/{uid}",
+            {"roleId": role_id},
+            token=token,
+        )
+
+    if not result.get("errors"):
+        await interaction.followup.send(
+            f"✅ **{username}** has been given the **{rolename}** role in your Roblox group.", ephemeral=True
+        )
+    else:
+        await interaction.followup.send(
+            f"❌ Failed: `{result.get('errors', result)}`", ephemeral=True
+        )
+
+# ── /robloxroles — list all roles in the group ───────────────────────────────
+@bot.tree.command(name="robloxroles", description="List all roles in your configured Roblox group")
+async def roblox_roles(interaction: discord.Interaction):
+    await interaction.response.defer()
+    if ROBLOX_GROUP_ID.startswith("YOUR_"):
+        await interaction.followup.send("⚙️ `ROBLOX_GROUP_ID` is not configured yet.", ephemeral=True)
+        return
+    async with aiohttp.ClientSession() as session:
+        roles_data = await _roblox_get(
+            session,
+            f"https://groups.roblox.com/v1/groups/{ROBLOX_GROUP_ID}/roles",
+        )
+    roles = roles_data.get("roles", [])
+    if not roles:
+        await interaction.followup.send("❌ Couldn't fetch group roles.", ephemeral=True)
+        return
+    embed = discord.Embed(
+        title=f"🎮 Roblox Group Roles",
+        color=discord.Color.from_rgb(226, 35, 26),
+    )
+    for r in sorted(roles, key=lambda x: x.get("rank", 0)):
+        embed.add_field(
+            name=f"Rank {r.get('rank','?')} — {r['name']}",
+            value=f"Role ID: `{r['id']}` · Members: {r.get('memberCount', '?')}",
+            inline=False,
+        )
+    embed.set_footer(text=f"Group ID: {ROBLOX_GROUP_ID}")
+    await interaction.followup.send(embed=embed)
+
+# ═════════════════════════════════════════════════════════════════════════════
+# SECTION 9 — CUSTOM COMMANDS & AUTO-MODERATION
 # ═════════════════════════════════════════════════════════════════════════════
 
 import re

@@ -149,9 +149,9 @@ def _make_embed(*, kind: str, title: str, url: str) -> tuple[str, discord.Embed]
     embed.set_footer(text="YouTube • " + datetime.datetime.utcnow().strftime("%b %d, %Y"))
     return f"@everyone {headline}", embed
 
-@tasks.loop(minutes=3)
+@tasks.loop(seconds=60)
 async def check_youtube():
-    """Every 3 min: detect live streams + new uploads, post to Meteor Run.
+    """Every 60 s: detect live streams + new uploads, post to Meteor Run.
 
     State machine:
       nothing  →  scheduled  : post scheduled notification, store message ref

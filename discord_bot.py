@@ -324,6 +324,92 @@ async def on_ready():
     write_stats.start()
     check_youtube.start()
 
+# ── AutoMod log channel finder ────────────────────────────────────────────────
+_AUTOMOD_LOG_NAMES = ("automod-log", "automod-logs", "mod-log", "mod-logs",
+                      "modlog", "modlogs", "audit-log", "audit-logs",
+                      "logs", "bot-logs", "server-logs")
+
+def _find_automod_log_channel(guild: discord.Guild):
+    """Return the best text channel for AutoMod logs, or None."""
+    for name in _AUTOMOD_LOG_NAMES:
+        ch = discord.utils.get(guild.text_channels, name=name)
+        if ch:
+            return ch
+    # Fallback: any channel whose name contains "log" or "mod"
+    for ch in guild.text_channels:
+        if "log" in ch.name or "automod" in ch.name:
+            return ch
+    return None
+
+# ── AutoMod action logger ─────────────────────────────────────────────────────
+AUTOMOD_TRIGGER_LABELS = {
+    discord.AutoModRuleTriggerType.keyword:          "🔤 Blocked Keyword",
+    discord.AutoModRuleTriggerType.spam:             "📨 Spam Detected",
+    discord.AutoModRuleTriggerType.keyword_preset:   "📋 Preset Keyword",
+    discord.AutoModRuleTriggerType.mention_spam:     "🔔 Mention Spam",
+    discord.AutoModRuleTriggerType.harmful_link:     "🔗 Harmful Link",
+}
+
+AUTOMOD_ACTION_LABELS = {
+    discord.AutoModRuleActionType.block_message:         "🚫 Message Blocked",
+    discord.AutoModRuleActionType.send_alert_message:    "📢 Alert Sent",
+    discord.AutoModRuleActionType.timeout:               "⏱️ User Timed Out",
+}
+
+@bot.event
+async def on_automod_action(execution: discord.AutoModAction):
+    guild = execution.guild
+    log_ch = _find_automod_log_channel(guild)
+    if not log_ch:
+        return
+
+    member        = execution.member
+    member_mention = member.mention if member else f"<@{execution.user_id}>"
+    member_name    = str(member)    if member else str(execution.user_id)
+    avatar_url     = member.display_avatar.url if member else None
+
+    trigger_label = AUTOMOD_TRIGGER_LABELS.get(execution.rule_trigger_type, "⚠️ AutoMod Rule")
+    action_label  = AUTOMOD_ACTION_LABELS.get(execution.action.type, "🤖 Action Taken")
+
+    embed = discord.Embed(
+        title="🛡️ AutoMod Action",
+        color=discord.Color.from_rgb(88, 101, 242),   # Discord blurple — matches AutoMod UI
+        timestamp=datetime.datetime.utcnow(),
+    )
+    embed.add_field(name="User",    value=f"{member_mention} (`{member_name}`)", inline=False)
+    embed.add_field(name="Trigger", value=trigger_label,  inline=True)
+    embed.add_field(name="Action",  value=action_label,   inline=True)
+
+    if execution.channel_id:
+        embed.add_field(name="Channel", value=f"<#{execution.channel_id}>", inline=True)
+
+    if execution.matched_keyword:
+        embed.add_field(name="Matched Keyword",
+                        value=f"`{execution.matched_keyword}`", inline=True)
+
+    if execution.matched_content:
+        snippet = execution.matched_content[:300]
+        embed.add_field(name="Matched Content",
+                        value=f"||{snippet}||", inline=False)
+    elif execution.content:
+        snippet = execution.content[:300]
+        embed.add_field(name="Message Content",
+                        value=f"||{snippet}||", inline=False)
+
+    if execution.action.type == discord.AutoModRuleActionType.timeout and execution.action.duration:
+        dur = int(execution.action.duration.total_seconds())
+        embed.add_field(name="Timeout Duration",
+                        value=f"{dur}s ({dur // 60}m)", inline=True)
+
+    embed.set_footer(text=f"Rule ID: {execution.rule_id} • AutoMod")
+    if avatar_url:
+        embed.set_thumbnail(url=avatar_url)
+
+    try:
+        await log_ch.send(embed=embed)
+    except discord.Forbidden:
+        pass
+
 # ── Owner check ───────────────────────────────────────────────────────────────
 BOT_ADMIN_ID = 1481589775507918942
 
@@ -1542,7 +1628,7 @@ async def roblox_link(interaction: discord.Interaction):
         return
     import urllib.parse
     state   = str(interaction.user.id)
-    scopes  = "openid profile group:read group:write"
+    scopes  = "openid profile"
     params  = urllib.parse.urlencode({
         "client_id":     ROBLOX_CLIENT_ID,
         "redirect_uri":  ROBLOX_REDIRECT_URI,

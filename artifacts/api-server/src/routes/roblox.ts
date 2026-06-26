@@ -20,6 +20,31 @@ function saveTokens(data: object) {
   writeFileSync(TOKENS_FILE, JSON.stringify(data, null, 2));
 }
 
+// GET /api/roblox/linked/:discordId — bot calls this to check if a user has linked
+router.get("/roblox/linked/:discordId", (req, res) => {
+  const { discordId } = req.params;
+  const all = readTokens();
+  const entry = all[discordId];
+  if (!entry) {
+    res.json({ linked: false });
+    return;
+  }
+  res.json({ linked: true, access_token: entry.access_token, expires_at: entry.expires_at });
+});
+
+// DELETE /api/roblox/linked/:discordId — unlink a Roblox account
+router.delete("/roblox/linked/:discordId", (req, res) => {
+  const { discordId } = req.params;
+  const all = readTokens();
+  if (all[discordId]) {
+    delete all[discordId];
+    saveTokens(all);
+    res.json({ unlinked: true });
+  } else {
+    res.json({ unlinked: false });
+  }
+});
+
 // GET /api/roblox/callback — Roblox OAuth2 redirect handler
 // The `state` param contains the Discord user ID so we can map the token to them.
 router.get("/roblox/callback", async (req, res) => {

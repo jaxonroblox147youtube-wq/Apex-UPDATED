@@ -1421,10 +1421,22 @@ async def _roblox_post(session: aiohttp.ClientSession, url: str, json_body: dict
         except Exception:
             return {}
 
-def _load_roblox_token(discord_id: int) -> str | None:
-    data = load_json(ROBLOX_TOKENS_FILE) or {}
-    entry = data.get(str(discord_id))
-    return entry.get("access_token") if entry else None
+API_BASE = "http://localhost:8080/api"   # internal – same container as the bot
+
+async def _load_roblox_token(discord_id: int) -> str | None:
+    """Fetch the stored Roblox access token for a Discord user from the API server."""
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.get(
+                f"{API_BASE}/roblox/linked/{discord_id}",
+                timeout=aiohttp.ClientTimeout(total=5),
+            ) as r:
+                if r.status != 200:
+                    return None
+                data = await r.json()
+                return data.get("access_token") if data.get("linked") else None
+    except Exception:
+        return None
 
 # ── /roblox <username> — public profile lookup ────────────────────────────────
 @bot.tree.command(name="roblox", description="Look up a Roblox user's profile and avatar")
@@ -1523,11 +1535,29 @@ async def roblox_link(interaction: discord.Interaction):
     embed.set_footer(text="Your Roblox credentials are never stored — only the OAuth token.")
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
+# ── /robloxunlink — remove linked Roblox account ─────────────────────────────
+@bot.tree.command(name="robloxunlink", description="Unlink your Roblox account from this bot")
+async def roblox_unlink(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.delete(
+                f"{API_BASE}/roblox/linked/{interaction.user.id}",
+                timeout=aiohttp.ClientTimeout(total=5),
+            ) as r:
+                data = await r.json() if r.status == 200 else {}
+        if data.get("unlinked"):
+            await interaction.followup.send("✅ Your Roblox account has been unlinked.", ephemeral=True)
+        else:
+            await interaction.followup.send("ℹ️ No linked Roblox account found for your Discord account.", ephemeral=True)
+    except Exception as e:
+        await interaction.followup.send(f"❌ Error unlinking: {e}", ephemeral=True)
+
 # ── /robloxme — show your linked profile ─────────────────────────────────────
 @bot.tree.command(name="robloxme", description="Show your linked Roblox profile")
 async def roblox_me(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
-    token = _load_roblox_token(interaction.user.id)
+    token = await _load_roblox_token(interaction.user.id)
     if not token:
         await interaction.followup.send(
             "❌ You haven't linked your Roblox account yet. Use `/robloxlink` first.", ephemeral=True
@@ -1560,7 +1590,7 @@ async def roblox_me(interaction: discord.Interaction):
 @app_commands.check(is_owner)
 async def roblox_announce(interaction: discord.Interaction, message: str):
     await interaction.response.defer(ephemeral=True)
-    token = _load_roblox_token(interaction.user.id)
+    token = await _load_roblox_token(interaction.user.id)
     if not token:
         await interaction.followup.send("❌ Link your Roblox account first with `/robloxlink`.", ephemeral=True)
         return
@@ -1588,7 +1618,7 @@ async def roblox_announce(interaction: discord.Interaction, message: str):
 @app_commands.check(is_owner)
 async def roblox_role(interaction: discord.Interaction, username: str, rolename: str):
     await interaction.response.defer(ephemeral=True)
-    token = _load_roblox_token(interaction.user.id)
+    token = await _load_roblox_token(interaction.user.id)
     if not token:
         await interaction.followup.send("❌ Link your Roblox account first with `/robloxlink`.", ephemeral=True)
         return

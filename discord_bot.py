@@ -2754,3 +2754,75 @@ async def robloxprofile(interaction: discord.Interaction, member: discord.Member
     embed.set_thumbnail(url=f"https://roblox.com{roblox_id}&width=150&height=150&format=png")
 
     await interaction.followup.send(embed=embed)
+# ──────────────────────────────────────────────────────────────────────────────
+# FINAL ROBLOX OAUTH INTEGRATION (Pasted at the very end of your script)
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Automatically map directly to your live Replit backend deployment!
+BACKEND_API_URL = "https://discord-bot-script--jaxonmarshall98.replit.app/api"
+
+async def fetch_linked_roblox_account(discord_id: int) -> dict | None:
+    """Queries your Replit Express backend to verify linking status,
+    then pulls live profile info from the Roblox API.
+    """
+    check_url = f"{BACKEND_API_URL}/roblox/linked/{discord_id}"
+    try:
+        async with aiohttp.ClientSession() as session:
+            # 1. Ask your Replit backend if this user has linked
+            async with session.get(check_url, timeout=aiohttp.ClientTimeout(total=6)) as response:
+                if response.status != 200:
+                    return None
+
+                backend_data = await response.json()
+                # If your backend file returns { "linked": false }
+                if not backend_data.get("linked"):
+                    return None
+
+                access_token = backend_data.get("access_token")
+
+            # 2. Use the verified access token to grab their real Roblox user profile information
+            roblox_profile_url = "https://roblox.com"
+            headers = {"Authorization": f"Bearer {access_token}"}
+
+            async with session.get(roblox_profile_url, headers=headers, timeout=aiohttp.ClientTimeout(total=6)) as roblox_res:
+                if roblox_res.status == 200:
+                    user_info = await roblox_res.json()
+                    return {
+                        "robloxId": user_info.get("sub"),             # Roblox User ID string
+                        "robloxUsername": user_info.get("name"),       # Current Display Name/Username
+                        "preferredName": user_info.get("preferred_username")
+                    }
+    except Exception as e:
+        print(f"[Roblox Integration Error] Could not parse profile: {e}")
+    return None
+
+@bot.tree.command(name="robloxprofile", description="View a member's linked Roblox profile.")
+@app_commands.describe(member="The Discord member whose linked account you want to see.")
+async def robloxprofile(interaction: discord.Interaction, member: discord.Member = None):
+    target_member = member or interaction.user
+
+    # Defer immediately to give your Replit and Roblox APIs ample time to finish processing
+    await interaction.response.defer()
+
+    # Fetch profile tracking
+    roblox_data = await fetch_linked_roblox_account(target_member.id)
+
+    if not roblox_data:
+        await interaction.followup.send(
+            f"❌ {target_member.mention} has not completed their Roblox link account setup yet."
+        )
+        return
+
+    roblox_username = roblox_data.get("robloxUsername", "Unknown")
+    roblox_id = roblox_data.get("robloxId", "Unknown")
+
+    embed = discord.Embed(
+        title="🔗 Linked Account Found",
+        color=discord.Color.green(),
+        description=f"**Discord User:** {target_member.mention}\n**Roblox User:** [{roblox_username}](https://roblox.com{roblox_id}/profile)"
+    )
+    embed.add_field(name="Roblox Name", value=f"`{roblox_username}`", inline=True)
+    embed.add_field(name="Roblox User ID", value=f"`{roblox_id}`", inline=True)
+    embed.set_thumbnail(url=f"https://roblox.com{roblox_id}&width=150&height=150&format=png")
+
+    await interaction.followup.send(embed=embed)

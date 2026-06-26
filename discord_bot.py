@@ -2703,3 +2703,54 @@ if not token:
     raise ValueError("DISCORD_TOKEN is not set. Add it to your secrets.")
 
 bot.run(token)
+# ──────────────────────────────────────────────────────────────────────────────
+# ROBLOX ACCOUNT FETCHING INTEGRATION (Paste this at the very end of your script)
+# ──────────────────────────────────────────────────────────────────────────────
+
+# CHANGE THIS to your actual Express server IP and Port
+BACKEND_API_URL = "http://YOUR_EXPRESS_SERVER_IP:PORT/api" 
+
+async def fetch_linked_roblox_account(discord_id: int) -> dict | None:
+    """Queries the Express backend API to get the linked Roblox account data."""
+    url = f"{BACKEND_API_URL}/roblox/user/{discord_id}"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as response:
+                if response.status == 200:
+                    return await response.json()
+                elif response.status == 404:
+                    return None
+    except Exception as e:
+        print(f"Error connecting to backend API: {e}")
+    return None
+
+@bot.tree.command(name="robloxprofile", description="View a member's linked Roblox profile.")
+@app_commands.describe(member="The Discord member whose linked account you want to see.")
+async def robloxprofile(interaction: discord.Interaction, member: discord.Member = None):
+    target_member = member or interaction.user
+
+    # Defer response immediately to prevent the 3-second Discord timeout window
+    await interaction.response.defer()
+
+    # Fetch from your Express server
+    roblox_data = await fetch_linked_roblox_account(target_member.id)
+
+    if not roblox_data:
+        await interaction.followup.send(
+            f"❌ {target_member.mention} has not linked their Roblox account to this bot yet."
+        )
+        return
+
+    roblox_username = roblox_data.get("robloxUsername", "Unknown")
+    roblox_id = roblox_data.get("robloxId", "Unknown")
+
+    embed = discord.Embed(
+        title="🔗 Linked Account Found",
+        color=discord.Color.green(),
+        description=f"**Discord:** {target_member.mention}\n**Roblox:** [{roblox_username}](https://roblox.com{roblox_id}/profile)"
+    )
+    embed.add_field(name="Roblox Username", value=roblox_username, inline=True)
+    embed.add_field(name="Roblox User ID", value=f"`{roblox_id}`", inline=True)
+    embed.set_thumbnail(url=f"https://roblox.com{roblox_id}&width=150&height=150&format=png")
+
+    await interaction.followup.send(embed=embed)

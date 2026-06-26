@@ -171,25 +171,54 @@ async def check_youtube():
                 print(f"YouTube channel ID resolved: {_yt_channel_id}")
 
             # ── 2. Fetch live page & classify state ───────────────────────────
-            async with session.get(YOUTUBE_LIVE_URL, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=10)) as r:
+            # Primary signal: /@handle/live redirects to watch?v=... when live/scheduled.
+            # Secondary: page content signals for live-vs-scheduled distinction.
+            final_url = YOUTUBE_LIVE_URL
+            live_page = ""
+            async with session.get(
+                YOUTUBE_LIVE_URL,
+                allow_redirects=True,
+                timeout=aiohttp.ClientTimeout(total=12),
+            ) as r:
+                final_url = str(r.url)
                 live_page = await r.text()
 
-            has_broadcast  = '"isLiveBroadcast"' in live_page
-            is_scheduled   = has_broadcast and '"upcomingEventData"' in live_page
-            _live_signals  = (
-                'watching now' in live_page.lower() or
-                '"isLiveNow":true' in live_page or
-                '"liveBadge"' in live_page or
-                'live viewers' in live_page.lower()
+            redirected_to_video = "watch?v=" in final_url
+            has_broadcast       = '"isLiveBroadcast"' in live_page or redirected_to_video
+            is_upcoming         = '"upcomingEventData"' in live_page
+            _live_content_signals = (
+                'watching now' in live_page.lower()
+                or '"isLiveNow":true' in live_page
+                or '"liveBadge"' in live_page
+                or 'live viewers' in live_page.lower()
+                or '"isLive":true' in live_page
+                or '"BADGE_STYLE_TYPE_LIVE_NOW"' in live_page
             )
-            is_live        = has_broadcast and not is_scheduled and _live_signals
+            # Channel is live when: redirected to a video AND no upcoming marker AND
+            # (content confirms live OR we already trust the redirect alone)
+            is_scheduled = has_broadcast and is_upcoming
+            is_live      = redirected_to_video and not is_upcoming
 
-            # Helper: extract stream title from page
+            # Debug output every cycle so you can see exactly what was detected
+            print(
+                f"[YT] final_url={final_url!r} redirected={redirected_to_video} "
+                f"has_broadcast={has_broadcast} is_upcoming={is_upcoming} "
+                f"content_signals={_live_content_signals} → "
+                f"is_live={is_live} is_scheduled={is_scheduled} "
+                f"was_live={_yt_was_live} was_sched={_yt_was_scheduled}"
+            )
+
+            # Helper: extract stream title from page / URL
             def _extract_title(page: str, fallback: str) -> str:
-                m = re.search(r'"title"\s*:\s*\{"runs"\s*:\s*\[\{"text"\s*:\s*"([^"]+)"', page)
-                if not m:
-                    m = re.search(r'<title>([^<]+)</title>', page)
-                return m.group(1).replace(" - YouTube", "").strip() if m else fallback
+                for pat in [
+                    r'"title"\s*:\s*\{"runs"\s*:\s*\[\{"text"\s*:\s*"([^"]+)"',
+                    r'"title"\s*:\s*"([^"]{3,})"',
+                    r'<title>([^<]+)</title>',
+                ]:
+                    m = re.search(pat, page)
+                    if m:
+                        return m.group(1).replace(" - YouTube", "").strip()
+                return fallback
 
             # ── 3. State transitions ─────────────────────────────────────────
 

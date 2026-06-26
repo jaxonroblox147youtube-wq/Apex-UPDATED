@@ -420,6 +420,134 @@ def is_owner(interaction: discord.Interaction) -> bool:
         return interaction.user == interaction.guild.owner
     return False
 
+# ── /deploy-rules — create 6 keyword AutoMod rules for the badge ─────────────
+_DEPLOY_RULES = [
+    {
+        "name": "🚫 Hate Speech Filter",
+        "keywords": [
+            "nigger", "nigga", "faggot", "fag", "chink", "spic", "kike",
+            "wetback", "beaner", "towelhead", "raghead", "cracker", "honky",
+            "tranny", "dyke", "retard", "retarded",
+        ],
+    },
+    {
+        "name": "🤬 Profanity Filter",
+        "keywords": [
+            "fuck", "fucker", "fucking", "motherfucker", "shit", "shithead",
+            "asshole", "bitch", "bastard", "cunt", "cock", "dick", "pussy",
+            "whore", "slut", "dickhead", "dumbass", "jackass",
+        ],
+    },
+    {
+        "name": "🔞 NSFW Content Filter",
+        "keywords": [
+            "porn", "pornhub", "xvideos", "xnxx", "onlyfans", "nude", "nudes",
+            "nsfw", "hentai", "milf", "blowjob", "handjob", "cumshot",
+            "sex tape", "leaked nudes",
+        ],
+    },
+    {
+        "name": "🧨 Threats & Violence Filter",
+        "keywords": [
+            "i will kill you", "gonna kill you", "i'll kill you",
+            "i will hurt you", "i will beat you", "imma shoot you",
+            "die bitch", "kys", "kill yourself", "end yourself",
+            "hang yourself", "drink bleach", "i hope you die",
+        ],
+    },
+    {
+        "name": "🔗 Scam & Spam Filter",
+        "keywords": [
+            "free nitro", "discord nitro free", "claim your nitro",
+            "gift card giveaway", "steam gift card", "you have been selected",
+            "click here to claim", "bit.ly", "tinyurl.com",
+            "crypto investment", "double your bitcoin", "dm me for profit",
+            "work from home earn", "make money fast",
+        ],
+    },
+    {
+        "name": "🏠 Doxxing Prevention Filter",
+        "keywords": [
+            "your ip is", "your address is", "i know where you live",
+            "doxxed", "doxxing", "swatting", "i will swat", "ssn",
+            "social security number", "your real name is", "found your house",
+        ],
+    },
+]
+
+@bot.tree.command(
+    name="deploy-rules",
+    description="Create 6 keyword AutoMod rules in this server (owner/admin only)"
+)
+@app_commands.checks.has_permissions(manage_guild=True)
+async def deploy_rules(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    guild = interaction.guild
+    if not guild:
+        await interaction.followup.send("❌ Must be used inside a server.", ephemeral=True)
+        return
+
+    if not guild.me.guild_permissions.manage_guild:
+        await interaction.followup.send(
+            "❌ I need the **Manage Server** permission to create AutoMod rules.", ephemeral=True
+        )
+        return
+
+    created, failed, skipped = [], [], []
+
+    # Avoid duplicate names
+    existing_names = {r.name for r in await guild.fetch_automod_rules()}
+
+    for rule_def in _DEPLOY_RULES:
+        if rule_def["name"] in existing_names:
+            skipped.append(rule_def["name"])
+            continue
+        try:
+            trigger = discord.AutoModTrigger(
+                keyword_filter=rule_def["keywords"],
+            )
+            action = discord.AutoModRuleAction(
+                type=discord.AutoModRuleActionType.block_message,
+            )
+            await guild.create_automod_rule(
+                name=rule_def["name"],
+                event_type=discord.AutoModRuleEventType.message_send,
+                trigger=trigger,
+                actions=[action],
+                enabled=True,
+                reason=f"Deployed by {interaction.user} via /deploy-rules",
+            )
+            created.append(rule_def["name"])
+        except discord.HTTPException as e:
+            failed.append(f"{rule_def['name']} — {e.text}")
+
+    embed = discord.Embed(
+        title="🛡️ AutoMod Rules Deployed",
+        color=discord.Color.from_rgb(88, 101, 242),
+        timestamp=datetime.datetime.utcnow(),
+    )
+    if created:
+        embed.add_field(
+            name=f"✅ Created ({len(created)})",
+            value="\n".join(created),
+            inline=False,
+        )
+    if skipped:
+        embed.add_field(
+            name=f"⏭️ Already Existed ({len(skipped)})",
+            value="\n".join(skipped),
+            inline=False,
+        )
+    if failed:
+        embed.add_field(
+            name=f"❌ Failed ({len(failed)})",
+            value="\n".join(failed),
+            inline=False,
+        )
+    total = len(created) + len(skipped)
+    embed.set_footer(text=f"{total}/6 rules active • AutoMod badge requires 6 enabled rules")
+    await interaction.followup.send(embed=embed, ephemeral=True)
+
 # ── Welcome events ────────────────────────────────────────────────────────────
 @bot.event
 async def on_member_join(member: discord.Member):

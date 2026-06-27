@@ -2829,35 +2829,65 @@ async def robloxprofile(interaction: discord.Interaction, member: discord.Member
 @bot.tree.command(name="youtube_check", description="Check the status of any YouTube channel by handle")@app_commands.describe(handle="The YouTube handle to check (e.g., @JaxonRoblo or @MrBeast)")async def youtube_check(interaction: discord.Interaction, handle: str):# Let the user know the bot is looking it up (prevents 3-second timeout error)await interaction.response.defer()if not handle.startswith("@"):handle = f"@{handle}"live_url = f"youtube.com{handle}/live"channel_url = f"youtube.com{handle}"async with aiohttp.ClientSession(headers=YT_HEADERS) as session:# Resolve the RSS channel IDchannel_id = await _resolve_yt_channel_id(session, handle)if not channel_id:return await interaction.followup.send(f"❌ Could not find a YouTube channel matching {handle}. Check your spelling.")# Check current live/scheduled statusfinal_url = live_urlasync with session.get(live_url, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=10)) as r:final_url = str(r.url)live_page = await r.text()redirected_to_video = "watch?v=" in final_urlhas_broadcast       = '"isLiveBroadcast"' in live_page or redirected_to_videois_upcoming         = '"upcomingEventData"' in live_page# Get channel name / metadata if possibletitle_match = re.search(r'<meta name="title" content="([^"]+)"', live_page)stream_or_ch_title = title_match.group(1) if title_match else handle# Build appropriate response embedembed = discord.Embed(color=discord.Color.blue())embed.set_author(name=f"YouTube Status: {handle}", url=channel_url)if redirected_to_video and not is_upcoming:embed.title = f"🔴 Currently LIVE!"embed.description = f"Stream Title: {stream_or_ch_title}\n\n▶️ Click to Watch Live Now"embed.color = discord.Color.red()elif has_broadcast and is_upcoming:embed.title = f"📅 Upcoming Scheduled Stream!"embed.description = f"Scheduled Event: {stream_or_ch_title}\n\n🔔 Set a Reminder on YouTube"embed.color = discord.Color.orange()else:# Fall back to pulling their latest standard video upload from RSSrss_url = f"youtube.com{channel_id}"async with session.get(rss_url, timeout=aiohttp.ClientTimeout(total=10)) as resp:if resp.status == 200:xml_text = await resp.text()root = ET.fromstring(xml_text)ns = {'ns': 'w3.org', 'yt': 'youtube.com'}entry = root.find('ns:entry', ns)if entry is not None:video_id = entry.find('yt:videoId', ns).textvideo_title = entry.find('ns:title', ns).textvideo_url = f"youtube.com{video_id}"embed.title = f"💤 Offline - Latest Upload:"embed.description = f"{video_title}\n\n📹 Watch Latest Video"embed.color = discord.Color.purple()else:embed.title = "💤 Offline"embed.description = f"This channel is currently offline and has no recent uploads."else:embed.title = "💤 Offline"embed.description = f"This channel is currently offline."await interaction.followup.send(embed=embed)Run token herebot.run("YOUR_TOKEN")
     # ── THE COMMAND ADDED TO THE END OF THE SCRIPT ───────────────────────────────
 
-    @bot.tree.command(name="set_youtube", description="Configure your own YouTube channel notification updates")
-    @app_commands.describe(
-        handle="Your YouTube handle (e.g., @MyChannel)",
-        discord_channel="Select the text channel from the menu to send the alert to",
-        track_type="Track when you go LIVE or track regular UPLOADS"
+# ── THE COMMAND MODAL ADDED TO THE END OF THE SCRIPT ─────────────────────────
+
+class YouTubeSetupModal(discord.ui.Modal, title="YouTube Alert Configuration"):
+    # Text input box for the YouTube Handle
+    handle_input = discord.ui.TextInput(
+        label="YouTube Handle",
+        placeholder="@YourChannelHandle",
+        required=True,
+        max_length=50
     )
-    @app_commands.choices(track_type=[
-        app_commands.Choice(name="Live Streams Only 🔴", value="live"),
-        app_commands.Choice(name="Video Uploads Only 📹", value="upload")
-    ])
-    async def set_youtube(
-        interaction: discord.Interaction, 
-        handle: str, 
-        discord_channel: discord.TextChannel, 
-        track_type: str
-    ):
+
+    # Text box for the Discord Channel Name (as requested!)
+    channel_input = discord.ui.TextInput(
+        label="Discord Channel Name",
+        placeholder="e.g. video-uploads",
+        required=True,
+        max_length=100
+    )
+
+    # Text box for the Tracking Type
+    track_input = discord.ui.TextInput(
+        label="Track Type (live or upload)",
+        placeholder="Type 'live' or 'upload'",
+        required=True,
+        max_length=10
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
 
+        handle = self.handle_input.value.strip()
+        channel_name = self.channel_input.value.strip().lower()
+        track_type = self.track_input.value.strip().lower()
+
+        # 1. Standardise handle prefix
         if not handle.startswith("@"):
             handle = f"@{handle}"
 
+        # 2. Check track type input
+        if track_type not in ["live", "upload"]:
+            return await interaction.followup.send("❌ Error: Track Type box must say exactly `live` or `upload`.", ephemeral=True)
+
+        # 3. Find the Discord text channel inside the server by searching the typed name
+        target_channel = None
+        for ch in interaction.guild.text_channels:
+            if ch.name.lower() == channel_name or ch.name.lower() == channel_name.lstrip('#'):
+                target_channel = ch
+                break
+
+        if not target_channel:
+            return await interaction.followup.send(f"❌ Error: Could not find a text channel named `#{channel_name}` in this server.", ephemeral=True)
+
+        # 4. Pull out and verify the YouTube Channel ID
         async with aiohttp.ClientSession(headers=YT_HEADERS) as session:
             channel_id = await _resolve_yt_channel_id(session, handle)
             if not channel_id:
-                return await interaction.followup.send(
-                    f"❌ Unable to track `{handle}`. Please verify your handle is spelled correctly.", 
-                    ephemeral=True
-                )
+                return await interaction.followup.send(f"❌ Error: Unable to locate a YouTube channel for `{handle}`.", ephemeral=True)
 
+        # 5. Commit properties to data storage structure
         guild_id_str = str(interaction.guild_id)
         user_id_str = str(interaction.user.id)
 
@@ -2867,7 +2897,7 @@ async def robloxprofile(interaction: discord.Interaction, member: discord.Member
         user_channels[guild_id_str][user_id_str] = {
             "handle": handle,
             "channel_id": channel_id,
-            "discord_channel_id": discord_channel.id,
+            "discord_channel_id": target_channel.id,
             "track_type": track_type,
             "last_seen_id": None,
             "was_live": False
@@ -2875,7 +2905,12 @@ async def robloxprofile(interaction: discord.Interaction, member: discord.Member
 
         save_json(USER_CHANNELS_FILE, user_channels)
         await interaction.followup.send(
-            f"✅ Success! Your channel **{handle}** has been registered. Notifications will post to "
-            f"{discord_channel.mention} with an `@everyone` tag when you go **{track_type}**.", 
+            f"✅ Configured! **{handle}** is now linked to {target_channel.mention}.\n"
+            f"An `@everyone` tag will fire when you go **{track_type}**.", 
             ephemeral=True
         )
+
+@bot.tree.command(name="set_youtube", description="Open the setup window to configure your YouTube alerts")
+async def set_youtube(interaction: discord.Interaction):
+    # This immediately pops open the modal overlay text boxes to the user
+    await interaction.response.send_modal(YouTubeSetupModal())

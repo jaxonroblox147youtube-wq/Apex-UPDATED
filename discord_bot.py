@@ -2829,107 +2829,36 @@ async def robloxprofile(interaction: discord.Interaction, member: discord.Member
 @bot.tree.command(name="youtube_check", description="Check the status of any YouTube channel by handle")@app_commands.describe(handle="The YouTube handle to check (e.g., @JaxonRoblo or @MrBeast)")async def youtube_check(interaction: discord.Interaction, handle: str):# Let the user know the bot is looking it up (prevents 3-second timeout error)await interaction.response.defer()if not handle.startswith("@"):handle = f"@{handle}"live_url = f"youtube.com{handle}/live"channel_url = f"youtube.com{handle}"async with aiohttp.ClientSession(headers=YT_HEADERS) as session:# Resolve the RSS channel IDchannel_id = await _resolve_yt_channel_id(session, handle)if not channel_id:return await interaction.followup.send(f"❌ Could not find a YouTube channel matching {handle}. Check your spelling.")# Check current live/scheduled statusfinal_url = live_urlasync with session.get(live_url, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=10)) as r:final_url = str(r.url)live_page = await r.text()redirected_to_video = "watch?v=" in final_urlhas_broadcast       = '"isLiveBroadcast"' in live_page or redirected_to_videois_upcoming         = '"upcomingEventData"' in live_page# Get channel name / metadata if possibletitle_match = re.search(r'<meta name="title" content="([^"]+)"', live_page)stream_or_ch_title = title_match.group(1) if title_match else handle# Build appropriate response embedembed = discord.Embed(color=discord.Color.blue())embed.set_author(name=f"YouTube Status: {handle}", url=channel_url)if redirected_to_video and not is_upcoming:embed.title = f"🔴 Currently LIVE!"embed.description = f"Stream Title: {stream_or_ch_title}\n\n▶️ Click to Watch Live Now"embed.color = discord.Color.red()elif has_broadcast and is_upcoming:embed.title = f"📅 Upcoming Scheduled Stream!"embed.description = f"Scheduled Event: {stream_or_ch_title}\n\n🔔 Set a Reminder on YouTube"embed.color = discord.Color.orange()else:# Fall back to pulling their latest standard video upload from RSSrss_url = f"youtube.com{channel_id}"async with session.get(rss_url, timeout=aiohttp.ClientTimeout(total=10)) as resp:if resp.status == 200:xml_text = await resp.text()root = ET.fromstring(xml_text)ns = {'ns': 'w3.org', 'yt': 'youtube.com'}entry = root.find('ns:entry', ns)if entry is not None:video_id = entry.find('yt:videoId', ns).textvideo_title = entry.find('ns:title', ns).textvideo_url = f"youtube.com{video_id}"embed.title = f"💤 Offline - Latest Upload:"embed.description = f"{video_title}\n\n📹 Watch Latest Video"embed.color = discord.Color.purple()else:embed.title = "💤 Offline"embed.description = f"This channel is currently offline and has no recent uploads."else:embed.title = "💤 Offline"embed.description = f"This channel is currently offline."await interaction.followup.send(embed=embed)Run token herebot.run("YOUR_TOKEN")
     # ── THE COMMAND ADDED TO THE END OF THE SCRIPT ───────────────────────────────
 
-class YouTubeSetupModal(discord.ui.Modal, title="YouTube Alert Configuration"):
-    handle_input = discord.ui.TextInput(
-        label="YouTube Handle",
-        placeholder="@YourChannelHandle",
-        required=True,
-        max_length=50
-    )
+    # ── REPAIRED RSS FEED VIDEO UPLOADS CHECK ───────────────────────────
+    rss_url = f"https://youtube.com{channel_id}"
+    async with aiohttp.ClientSession(headers=YT_HEADERS) as session:
+        async with session.get(rss_url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+            if resp.status == 200:
+                xml_text = await resp.text()
+                root = ET.fromstring(xml_text)
+                ns = {
+                    'ns': 'http://w3.org', 
+                    'yt': 'http://youtube.com'
+                }
+                entry = root.find('ns:entry', ns)
 
-    channel_input = discord.ui.TextInput(
-        label="Discord Channel Name",
-        placeholder="e.g. video-uploads",
-        required=True,
-        max_length=100
-    )
+                if entry is not None:
+                    video_id = entry.find('yt:videoId', ns).text
+                    video_title = entry.find('ns:title', ns).text
+                    video_url = f"https://youtube.com{video_id}"
 
-    track_input = discord.ui.TextInput(
-        label="Track Type (live or upload)",
-        placeholder="Type 'live' or 'upload'",
-        required=True,
-        max_length=10
-    )
+                    embed.title = "💤 Offline - Latest Upload:"
+                    embed.description = f"**{video_title}**\n\n[📹 Watch Latest Video]({video_url})"
+                    embed.color = discord.Color.purple()
+                else:
+                    embed.title = "💤 Offline"
+                    embed.description = "This channel is currently offline and has no recent uploads."
+            else:
+                embed.title = "💤 Offline"
+                embed.description = "This channel is currently offline."
 
-    async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
+    await interaction.followup.send(embed=embed)
 
-        handle = self.handle_input.value.strip()
-        channel_name = self.channel_input.value.strip().lower()
-        track_type = self.track_input.value.strip().lower()
-
-        if not handle.startswith("@"):
-            handle = f"@{handle}"
-
-        if track_type not in ["live", "upload"]:
-            return await interaction.followup.send("❌ Error: Track Type box must say exactly `live` or `upload`.", ephemeral=True)
-
-        target_channel = None
-        for ch in interaction.guild.text_channels:
-            if ch.name.lower() == channel_name or ch.name.lower() == channel_name.lstrip('#'):
-                target_channel = ch
-                break
-
-        if not target_channel:
-            return await interaction.followup.send(f"❌ Error: Could not find a text channel named `#{channel_name}` in this server.", ephemeral=True)
-
-        async with aiohttp.ClientSession(headers=YT_HEADERS) as session:
-            channel_id = await _resolve_yt_channel_id(session, handle)
-            if not channel_id:
-                return await interaction.followup.send(f"❌ Error: Unable to locate a YouTube channel for `{handle}`.", ephemeral=True)
-
-        guild_id_str = str(interaction.guild_id)
-        user_id_str = str(interaction.user.id)
-
-        if guild_id_str not in user_channels:
-            user_channels[guild_id_str] = {}
-
-        user_channels[guild_id_str][user_id_str] = {
-            "handle": handle,
-            "channel_id": channel_id,
-            "discord_channel_id": target_channel.id,
-            "track_type": track_type,
-            "last_seen_id": None,
-            "was_live": False
-        }
-
-        save_json(USER_CHANNELS_FILE, user_channels)
-        await interaction.followup.send(
-            f"✅ Configured! **{handle}** is now linked to {target_channel.mention}.\n"
-            f"An `@everyone` tag will fire when you go **{track_type}**.", 
-            ephemeral=True
-        )
-
-@bot.tree.command(name="set_youtube", description="Open the setup window to configure your YouTube alerts")
-async def set_youtube(interaction: discord.Interaction):
-    await interaction.response.send_modal(YouTubeSetupModal())
-
-async def handle_web_request(request):
-    return aiohttp.web.Response(text="Bot is online and tracking YouTube channels!")
-
-async def start_replit_webserver():
-    app = aiohttp.web.Application()
-    app.router.add_get('/', handle_web_request)
-    runner = aiohttp.web.AppRunner(app)
-    await runner.setup()
-    site = aiohttp.web.TCPSite(runner, '0.0.0.0', 8080)
-    try:
-        await site.start()
-        print("Replit web service successfully established on port 8080.")
-    except Exception as e:
-        print(f"Web server port bind skipped: {e}")
-
-@bot.listen("on_ready")
-async def my_custom_youtube_startup():
-    global BOT_START_TIME
-    BOT_START_TIME = datetime.datetime.utcnow()
-
-    try:
-        write_stats.start()
-        check_user_channels.start()
-    except RuntimeWarning:
-        pass
-
-    await start_replit_webserver()
-    print("YouTube notification tasks and web server are active!")
-# ──────────────────────────────────────────────────────────────────────────────
+    # ── RUN THE BOT CHASSIS ──────────────────────────────────────────────────────
+    # Make sure to replace token string with your actual Replit Secret variable!
+    # bot.run(os.environ['DISCORD_TOKEN'])

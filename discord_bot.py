@@ -2930,3 +2930,5 @@ async def start_replit_webserver():
 @bot.listen()
 async def on_ready():
     await start_replit_webserver()
+async def setup_hook(self):
+await self.tree.sync()

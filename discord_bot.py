@@ -249,6 +249,11 @@ async def userinfo(interaction: discord.Interaction, member: discord.Member = No
 # ═════════════════════════════════════════════════════════════════════════════
 
 BACKEND_API_URL = "https://discord-bot-script--jaxonmarshall98.replit.app/api"
+ROBLOX_CLIENT_ID    = os.environ.get("ROBLOX_CLIENT_ID", "")
+ROBLOX_REDIRECT_URI = os.environ.get(
+    "ROBLOX_REDIRECT_URI",
+    "https://discord-bot-script--jaxonmarshall98.replit.app/api/roblox/callback"
+)
 
 async def fetch_linked_roblox_account(discord_id: int) -> dict | None:
     check_url = f"{BACKEND_API_URL}/roblox/linked/{discord_id}"

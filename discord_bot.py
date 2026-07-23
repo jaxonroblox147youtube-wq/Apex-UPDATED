@@ -165,10 +165,10 @@ async def check_youtube():
                         try: await _scheduled_msg.edit(content=c, embed=e)
                         except: await ch.send(c, embed=e)
                     else: await ch.send(c, embed=e)
-                await bot.change_presence(activity=discord.Streaming(name="Jaxon is LIVE! 🔴", url=YOUTUBE_LIVE_URL))
+                await bot.change_presence(status=discord.Status.dnd, activity=discord.Streaming(name="Jaxon is LIVE! 🔴", url=YOUTUBE_LIVE_URL))
             elif not is_live and _yt_was_live:
                 _yt_was_live = False
-                await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="over the server 👀"))
+                await bot.change_presence(status=discord.Status.dnd, activity=discord.Activity(type=discord.ActivityType.watching, name="over the server 👀"))
 
             if _yt_channel_id and not is_live:
                 rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={_yt_channel_id}"
@@ -191,7 +191,10 @@ async def check_youtube():
 async def on_ready():
     global BOT_START_TIME
     BOT_START_TIME = datetime.datetime.utcnow()
-    await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="over the server 👀"))
+    await bot.change_presence(
+        status=discord.Status.dnd,
+        activity=discord.Activity(type=discord.ActivityType.watching, name="over the server 👀")
+    )
     print(f"Logged in as {bot.user}")
     write_stats.start()
     check_youtube.start()

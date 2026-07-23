@@ -277,6 +277,67 @@ async def fetch_linked_roblox_account(discord_id: int) -> dict | None:
         print(f"Roblox Integration Error: {e}")
     return None
 
+@bot.tree.command(name="robloxlink", description="Link your Roblox account to the bot via Roblox OAuth")
+async def robloxlink(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    if not ROBLOX_CLIENT_ID:
+        return await interaction.followup.send(
+            "❌ Roblox OAuth is not configured on this bot yet. Contact the bot owner.",
+            ephemeral=True
+        )
+    params = urllib.parse.urlencode({
+        "client_id":     ROBLOX_CLIENT_ID,
+        "redirect_uri":  ROBLOX_REDIRECT_URI,
+        "scope":         "openid profile",
+        "response_type": "code",
+        "state":         str(interaction.user.id),
+    })
+    auth_url = f"https://apis.roblox.com/oauth/v1/authorize?{params}"
+    embed = discord.Embed(
+        title="🔗 Link Your Roblox Account",
+        description=(
+            f"Click the button below to securely authorize the bot with your Roblox account.\n\n"
+            f"[**Authorize with Roblox →**]({auth_url})"
+        ),
+        color=discord.Color.blue()
+    )
+    embed.set_footer(text="You'll be redirected back automatically. This link is just for you.")
+    await interaction.followup.send(embed=embed, ephemeral=True)
+
+@bot.tree.command(name="robloxme", description="Show your linked Roblox profile")
+async def robloxme(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    roblox_data = await fetch_linked_roblox_account(interaction.user.id)
+    if not roblox_data:
+        return await interaction.followup.send(
+            "❌ You haven't linked your Roblox account yet. Use `/robloxlink` to get started.",
+            ephemeral=True
+        )
+    roblox_username = roblox_data.get("robloxUsername", "Unknown")
+    roblox_id = roblox_data.get("robloxId", "Unknown")
+    embed = discord.Embed(title="✅ Your Linked Roblox Account", color=discord.Color.green())
+    embed.description = f"[{roblox_username}](https://www.roblox.com/users/{roblox_id}/profile)"
+    embed.add_field(name="Roblox Username", value=f"`{roblox_username}`", inline=True)
+    embed.add_field(name="Roblox User ID", value=f"`{roblox_id}`", inline=True)
+    embed.set_thumbnail(url=f"https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds={roblox_id}&size=150x150&format=Png&isCircular=true")
+    await interaction.followup.send(embed=embed, ephemeral=True)
+
+@bot.tree.command(name="robloxunlink", description="Unlink your Roblox account from the bot")
+async def robloxunlink(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.delete(
+                f"{BACKEND_API_URL}/roblox/linked/{interaction.user.id}", timeout=aiohttp.ClientTimeout(total=6)
+            ) as resp:
+                data = await resp.json()
+        if data.get("unlinked"):
+            await interaction.followup.send("✅ Your Roblox account has been unlinked.", ephemeral=True)
+        else:
+            await interaction.followup.send("ℹ️ No linked Roblox account found for your profile.", ephemeral=True)
+    except Exception as e:
+        await interaction.followup.send(f"❌ Error unlinking: {e}", ephemeral=True)
+
 @bot.tree.command(name="robloxprofile", description="View a member's linked Roblox profile.")
 async def robloxprofile(interaction: discord.Interaction, member: discord.Member = None):
     target_member = member or interaction.user

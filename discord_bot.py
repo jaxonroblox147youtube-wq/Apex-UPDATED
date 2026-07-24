@@ -680,7 +680,31 @@ async def on_message(message: discord.Message):
 
     await bot.process_commands(message)
 
+# ── Keep-alive web server (for Uptime Robot) ──────────────────────────────────
+from aiohttp import web as aio_web
+
+async def _handle_ping(request):
+    return aio_web.Response(text="OK", status=200)
+
+async def start_keep_alive():
+    port = 5000
+    app = aio_web.Application()
+    app.router.add_get("/", _handle_ping)
+    app.router.add_get("/ping", _handle_ping)
+    runner = aio_web.AppRunner(app)
+    await runner.setup()
+    site = aio_web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    print(f"Keep-alive server running on port {port}")
+
 # ── FINAL RUN (ONLY ONE RUN CALL) ─────────────────────────────────────────────
-token = os.environ.get("DISCORD_TOKEN")
-if token:
-    bot.run(token)
+async def main():
+    token = os.environ.get("DISCORD_TOKEN")
+    if not token:
+        print("ERROR: DISCORD_TOKEN not set")
+        return
+    await start_keep_alive()
+    await bot.start(token)
+
+if __name__ == "__main__" or os.environ.get("DISCORD_TOKEN"):
+    asyncio.run(main())

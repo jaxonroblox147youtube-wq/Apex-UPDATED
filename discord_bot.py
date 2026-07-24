@@ -1709,115 +1709,115 @@ async def roblox_game(interaction: discord.Interaction, name: str):
     embed.set_footer(text="Roblox • roblox.com")
     await interaction.followup.send(embed=embed)
 
-# ── /robloxstatus — live Roblox service health ────────────────────────────────
-        import aiohttp
-        import discord
-        from discord.ext import commands
-        from discord import app_commands
+*-# ── /robloxstatus — live Roblox service health ────────────────────────────────
+import aiohttp
+import discord
+from discord.ext import commands
+from discord import app_commands
 
-        intents = discord.Intents.default()
+intents = discord.Intents.default()
 
-        class RobloxStatusBot(commands.Bot):
-            def __init__(self):
-                super().__init__(command_prefix="!", intents=intents)
+class RobloxStatusBot(commands.Bot):
+    def __init__(self):
+        super().__init__(command_prefix="!", intents=intents)
 
-            async def setup_hook(self):
-                try:
-                    synced = await self.tree.sync()
-                    print(f"Successfully synced {len(synced)} application command(s) via setup_hook.")
-                except Exception as e:
-                    print(f"Failed to sync commands in setup_hook: {e}")
+    async def setup_hook(self):
+        try:
+            synced = await self.tree.sync()
+            print(f"Successfully synced {len(synced)} application command(s) via setup_hook.")
+        except Exception as e:
+            print(f"Failed to sync commands in setup_hook: {e}")
 
-        bot = RobloxStatusBot()
+bot = RobloxStatusBot()
 
-        @bot.tree.command(name="robloxstatus", description="Check Roblox's live service status")
-        async def roblox_status(interaction: discord.Interaction):
-            await interaction.response.defer()
+@bot.tree.command(name="robloxstatus", description="Check Roblox's live service status")
+async def roblox_status(interaction: discord.Interaction):
+    await interaction.response.defer()
 
-            async with aiohttp.ClientSession() as session:
-                try:
-                    async with session.get(
-                        "https://status.roblox.com/api/v2/summary.json",
-                        timeout=aiohttp.ClientTimeout(total=8),
-                    ) as r:
-                        data = await r.json() if r.status == 200 else {}
-                except Exception as e:
-                    print(f"Error fetching Roblox status: {e}")
-                    data = {}
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.get(
+                "https://status.roblox.com/api/v2/summary.json",
+                timeout=aiohttp.ClientTimeout(total=8),
+            ) as r:
+                data = await r.json() if r.status == 200 else {}
+        except Exception as e:
+            print(f"Error fetching Roblox status: {e}")
+            data = {}
 
-            if not data:
-                await interaction.followup.send(
-                    "❌ Could not reach the Roblox status page.", ephemeral=True
-                )
-                return
+    if not data:
+        await interaction.followup.send(
+            "❌ Could not reach the Roblox status page.", ephemeral=True
+        )
+        return
 
-            indicator = data.get("status", {}).get("indicator", "none")
-            overall = data.get("status", {}).get("description", "Unknown")
+    indicator = data.get("status", {}).get("indicator", "none")
+    overall = data.get("status", {}).get("description", "Unknown")
 
-            color_map = {
-                "none": discord.Color.green(),
-                "minor": discord.Color.yellow(),
-                "major": discord.Color.orange(),
-                "critical": discord.Color.red(),
-            }
-            icon_map = {"none": "✅", "minor": "⚠️", "major": "🔶", "critical": "🔴"}
+    color_map = {
+        "none": discord.Color.green(),
+        "minor": discord.Color.yellow(),
+        "major": discord.Color.orange(),
+        "critical": discord.Color.red(),
+    }
+    icon_map = {"none": "✅", "minor": "⚠️", "major": "🔶", "critical": "🔴"}
 
-            embed = discord.Embed(
-                title=f"{icon_map.get(indicator, '❓')} Roblox Status — {overall}",
-                url="https://status.roblox.com",
-                color=color_map.get(indicator, discord.Color.dark_embed()),
-            )
+    embed = discord.Embed(
+        title=f"{icon_map.get(indicator, '❓')} Roblox Status — {overall}",
+        url="https://status.roblox.com",
+        color=color_map.get(indicator, discord.Color.dark_embed()),
+    )
 
-            # 1. Safe & Accurate Active Incidents Filter
-            active_incidents = [
-                i for i in data.get("incidents", []) 
-                if i.get("status", "").lower() != "resolved"
-            ]
+    # 1. Safe & Accurate Active Incidents Filter
+    active_incidents = [
+        i for i in data.get("incidents", []) 
+        if i.get("status", "").lower() != "resolved"
+    ]
 
-            if active_incidents:
-                inc = active_incidents[0]
-                link = inc.get('shortlink')
-                link_text = f"\n**[View Details]({link})**" if link else ""
+    if active_incidents:
+        inc = active_incidents[0]
+        link = inc.get('shortlink')
+        link_text = f"\n**[View Details]({link})**" if link else ""
 
-                embed.add_field(
-                    name="🚨 Active Incident",
-                    value=f"**{inc.get('name', 'Unknown Incident')}**{link_text}",
-                    inline=False,
-                )
+        embed.add_field(
+            name="🚨 Active Incident",
+            value=f"**{inc.get('name', 'Unknown Incident')}**{link_text}",
+            inline=False,
+        )
 
-            # 2. RESTORED: Filter for main structural components (no group_id)
-            # This correctly grabs main categories like Website, Mobile App, etc.
-            components = [c for c in data.get("components", []) if not c.get("group_id")]
+    # 2. RESTORED: Filter for main structural components (no group_id)
+    # This correctly grabs main categories like Website, Mobile App, etc.
+    components = [c for c in data.get("components", []) if not c.get("group_id")]
 
-            if not components:
-                components = data.get("components", [])
+    if not components:
+        components = data.get("components", [])
 
-            for comp in components[:12]: 
-                raw_status = comp.get("status", "unknown")
-                status_text = raw_status.replace("_", " ").title()
+    for comp in components[:12]: 
+        raw_status = comp.get("status", "unknown")
+        status_text = raw_status.replace("_", " ").title()
 
-                if raw_status == "operational":
-                    icon = "✅"
-                elif "degraded" in raw_status or "partial" in raw_status:
-                    icon = "⚠️"
-                else:
-                    icon = "🔴"
+        if raw_status == "operational":
+            icon = "✅"
+        elif "degraded" in raw_status or "partial" in raw_status:
+            icon = "⚠️"
+        else:
+            icon = "🔴"
 
-                embed.add_field(
-                    name=comp.get("name", "Unknown Component"),
-                    value=f"{icon} {status_text}",
-                    inline=False, 
-                )
+        embed.add_field(
+            name=comp.get("name", "Unknown Component"),
+            value=f"{icon} {status_text}",
+            inline=False, 
+        )
 
-            embed.set_footer(text="status.roblox.com")
-            await interaction.followup.send(embed=embed)
+    embed.set_footer(text="status.roblox.com")
+    await interaction.followup.send(embed=embed)
 
-        @bot.event
-        async def on_ready():
-            print(f"Logged in as {bot.user} (ID: {bot.user.id})")
+@bot.event
+async def on_ready():
+    print(f"Logged in as {bot.user} (ID: {bot.user.id})")
 
-        # Run the bot (Replace with your actual token)
-        # bot.run("YOUR_BOT_TOKEN_HERE")
+# Run the bot (Replace with your actual token)
+# bot.run("YOUR_BOT_TOKEN_HERE")
 
 
 

@@ -447,7 +447,7 @@ async def setyoutube(interaction: discord.Interaction, handle: str, channel: dis
 # ══════════════════════════════════════════════════════════════════════════════
 
 async def get_ai_response(question: str) -> str:
-    api_key = os.environ.get("OPENAI_API_KEY", "")
+    api_key = os.environ.get("GEMINI_API_KEY", "")
     if not api_key:
         return (
             f"Thanks for reaching out!\n\n"
@@ -456,27 +456,30 @@ async def get_ai_response(question: str) -> str:
             "Please hang tight! 🙏"
         )
     try:
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"gemini-1.5-flash:generateContent?key={api_key}"
+        )
+        payload = {
+            "system_instruction": {
+                "parts": [{"text": (
+                    "You are Apex, a helpful Discord support bot. "
+                    "Give clear, concise, friendly answers to support ticket questions. "
+                    "Keep responses under 300 words."
+                )}]
+            },
+            "contents": [{"parts": [{"text": question}]}],
+            "generationConfig": {"maxOutputTokens": 400},
+        }
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                json={
-                    "model": "gpt-3.5-turbo",
-                    "messages": [
-                        {"role": "system", "content": (
-                            "You are Apex, a helpful Discord support bot. "
-                            "Give clear, concise, friendly answers to support ticket questions. "
-                            "Keep responses under 300 words."
-                        )},
-                        {"role": "user", "content": question},
-                    ],
-                    "max_tokens": 400,
-                },
+                url,
+                json=payload,
                 timeout=aiohttp.ClientTimeout(total=15),
             ) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    return data["choices"][0]["message"]["content"]
+                    return data["candidates"][0]["content"]["parts"][0]["text"]
                 return "I'm having trouble connecting right now. A staff member will assist you shortly!"
     except Exception:
         return "I'm having trouble connecting right now. A staff member will assist you shortly!"

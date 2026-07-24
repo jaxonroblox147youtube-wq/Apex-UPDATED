@@ -1710,45 +1710,58 @@ async def roblox_game(interaction: discord.Interaction, name: str):
     await interaction.followup.send(embed=embed)
 
 # ── /robloxstatus — live Roblox service health ────────────────────────────────
-@bot.tree.command(name="robloxstatus", description="Check Roblox's live service status")
-async def roblox_status(interaction: discord.Interaction):
-    await interaction.response.defer()
-    async with aiohttp.ClientSession() as session:
-        async with session.get(
-            "https://status.roblox.com/api/v2/summary.json",
-            timeout=aiohttp.ClientTimeout(total=8),
-        ) as r:
-            data = await r.json() if r.status == 200 else {}
+    @bot.tree.command(name="robloxstatus", description="Check Roblox's live service status")
+    async def roblox_status(interaction: discord.Interaction):
+        await interaction.response.defer()
 
-    if not data:
-        await interaction.followup.send("❌ Could not reach the Roblox status page.", ephemeral=True)
-        return
+        async with aiohttp.ClientSession() as session:
+            try:
+                async with session.get(
+                    "https://status.roblox.com/api/v2/summary.json",
+                    timeout=aiohttp.ClientTimeout(total=8),
+                ) as r:
+                    data = await r.json() if r.status == 200 else {}
+            except Exception:
+                data = {}
 
-    indicator = data.get("status", {}).get("indicator", "none")
-    overall   = data.get("status", {}).get("description", "Unknown")
-    color_map = {"none": discord.Color.green(), "minor": discord.Color.yellow(),
-                 "major": discord.Color.orange(), "critical": discord.Color.red()}
-    icon_map  = {"none": "✅", "minor": "⚠️", "major": "🔶", "critical": "🔴"}
+        if not data:
+            await interaction.followup.send("❌ Could not reach the Roblox status page.", ephemeral=True)
+            return
 
-    embed = discord.Embed(
-        title=f"{icon_map.get(indicator, '❓')} Roblox Status — {overall}",
-        url="https://status.roblox.com",
-        color=color_map.get(indicator, discord.Color.greyple()),
-    )
-    for comp in data.get("components", [])[:12]:
-        status = comp.get("status", "unknown").replace("_", " ").title()
-        icon   = "✅" if comp["status"] == "operational" else "⚠️" if "degraded" in comp["status"] else "🔴"
-        embed.add_field(name=comp.get("name", "?"), value=f"{icon} {status}", inline=True)
-    incidents = data.get("incidents", [])
-    if incidents:
-        inc = incidents[0]
-        embed.add_field(
-            name="🚨 Active Incident",
-            value=f"**{inc.get('name','?')}**\n{inc.get('shortlink','')}",
-            inline=False,
+        indicator = data.get("status", {}).get("indicator", "none")
+        overall   = data.get("status", {}).get("description", "Unknown")
+
+        color_map = {"none": discord.Color.green(), "minor": discord.Color.yellow(),
+                     "major": discord.Color.orange(), "critical": discord.Color.red()}
+        icon_map  = {"none": "✅", "minor": "⚠️", "major": "🔶", "critical": "🔴"}
+
+        embed = discord.Embed(
+            title=f"{icon_map.get(indicator, '❓')} Roblox Status — {overall}",
+            url="https://status.roblox.com",
+            color=color_map.get(indicator, discord.Color.greyple()),
         )
-    embed.set_footer(text="status.roblox.com")
-    await interaction.followup.send(embed=embed)
+
+        # Safely slice to prevent hitting Discord's 25-field embed limit
+        for comp in data.get("components", [])[:12]:
+            raw_status = comp.get("status", "unknown")
+            status_text = raw_status.replace("_", " ").title()
+
+            # Fixed the potential KeyError here by using raw_status
+            icon = "✅" if raw_status == "operational" else "⚠️" if "degraded" in raw_status else "🔴"
+            embed.add_field(name=comp.get("name", "Unknown"), value=f"{icon} {status_text}", inline=True)
+
+        incidents = data.get("incidents", [])
+        if incidents:
+            inc = incidents[0]
+            embed.add_field(
+                name="🚨 Active Incident",
+                value=f"**{inc.get('name','?')}\n[View Details]({inc.get('shortlink','')})**",
+                inline=False,
+            )
+
+        embed.set_footer(text="status.roblox.com")
+        await interaction.followup.send(embed=embed)
+
 
 # ── /robloxavatar <username> — full body avatar render ────────────────────────
 @bot.tree.command(name="robloxavatar", description="Show a Roblox user's full body avatar")

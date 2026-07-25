@@ -2558,7 +2558,7 @@ async def on_message(message: discord.Message):
         cmds = load_json(CUSTOM_CMDS_FILE).get(str(message.guild.id), {})
         if trigger in cmds:
             await message.channel.send(cmds[trigger]["response"])
-            return
+            # return
 
     await bot.process_commands(message)
 
@@ -2590,3 +2590,4 @@ async def main():
 
 if __name__ == "__main__" or os.environ.get("DISCORD_TOKEN"):
     asyncio.run(main())
+# 

@@ -1709,7 +1709,7 @@ async def roblox_game(interaction: discord.Interaction, name: str):
     embed.set_footer(text="Roblox • roblox.com")
     await interaction.followup.send(embed=embed)
 
-*-# ── /robloxstatus — live Roblox service health ────────────────────────────────
+# ── /robloxstatus — live Roblox service health ────────────────────────────────
 import aiohttp
 import discord
 from discord.ext import commands

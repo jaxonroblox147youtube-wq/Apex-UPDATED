@@ -1710,26 +1710,6 @@ async def roblox_game(interaction: discord.Interaction, name: str):
     await interaction.followup.send(embed=embed)
 
 # ── /robloxstatus — live Roblox service health ────────────────────────────────
-import aiohttp
-import discord
-from discord.ext import commands
-from discord import app_commands
-
-intents = discord.Intents.default()
-
-class RobloxStatusBot(commands.Bot):
-    def __init__(self):
-        super().__init__(command_prefix="!", intents=intents)
-
-    async def setup_hook(self):
-        try:
-            synced = await self.tree.sync()
-            print(f"Successfully synced {len(synced)} application command(s) via setup_hook.")
-        except Exception as e:
-            print(f"Failed to sync commands in setup_hook: {e}")
-
-bot = RobloxStatusBot()
-
 @bot.tree.command(name="robloxstatus", description="Check Roblox's live service status")
 async def roblox_status(interaction: discord.Interaction):
     await interaction.response.defer()
@@ -1811,15 +1791,6 @@ async def roblox_status(interaction: discord.Interaction):
 
     embed.set_footer(text="status.roblox.com")
     await interaction.followup.send(embed=embed)
-
-@bot.event
-async def on_ready():
-    print(f"Logged in as {bot.user} (ID: {bot.user.id})")
-
-# Run the bot (Replace with your actual token)
-# bot.run("YOUR_BOT_TOKEN_HERE")
-
-
 
 # ── /robloxavatar <username> — full body avatar render ────────────────────────
 @bot.tree.command(name="robloxavatar", description="Show a Roblox user's full body avatar")

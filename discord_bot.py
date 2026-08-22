@@ -196,7 +196,10 @@ async def on_ready():
     BOT_START_TIME = datetime.datetime.utcnow()
     await bot.change_presence(
         status=discord.Status.dnd,
-        activity=discord.Activity(type=discord.ActivityType.watching, name="over the server 👀")
+        activity=discord.Streaming(
+            name="JaxonRoblo on YouTube",
+            url=YOUTUBE_CHANNEL_PAGE,
+        )
     )
     print(f"Logged in as {bot.user}")
     write_stats.start()

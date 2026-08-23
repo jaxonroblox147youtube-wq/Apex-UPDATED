@@ -23,6 +23,9 @@ function Router() {
       <Route path="/dashboard/:guildId/automod">
         {(params) => <GuildDashboard tab="automod" />}
       </Route>
+      <Route path="/dashboard/:guildId/applications">
+        {(params) => <GuildDashboard tab="applications" />}
+      </Route>
       <Route component={NotFound} />
     </Switch>
   );

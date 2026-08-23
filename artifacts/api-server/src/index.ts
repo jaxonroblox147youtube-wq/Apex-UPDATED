@@ -8,7 +8,7 @@ function startDiscordBot() {
   const botPath = path.resolve(import.meta.dirname, "../../../discord_bot.py");
   const child = spawn("python", [botPath], {
     stdio: "inherit",
-    env: { ...process.env },
+    env: { ...process.env, APEX_MANAGED_BY_API: "1" },
   });
   child.on("exit", (code) => {
     logger.warn({ code }, "Discord bot exited — restarting in 5s");

@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { useParams, useLocation } from "wouter";
 import { Link } from "wouter";
-import { LayoutDashboard, TerminalSquare, ShieldAlert, Home, ChevronLeft, Bot, LogOut, Menu, X } from "lucide-react";
+import { LayoutDashboard, TerminalSquare, ShieldAlert, FileText, Home, ChevronLeft, Bot, LogOut, Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import GuildOverview from "./GuildOverview";
 import GuildCommands from "./GuildCommands";
 import GuildAutomod from "./GuildAutomod";
+import GuildApplications from "./GuildApplications";
 
 interface GuildInfo {
   id: string;
@@ -58,6 +59,7 @@ export default function GuildDashboard({ tab }: Props) {
     { id: "overview", label: "Overview", icon: LayoutDashboard, href: `/dashboard/${guildId}` },
     { id: "commands", label: "Commands", icon: TerminalSquare, href: `/dashboard/${guildId}/commands` },
     { id: "automod", label: "Auto-Moderation", icon: ShieldAlert, href: `/dashboard/${guildId}/automod` },
+    { id: "applications", label: "Applications", icon: FileText, href: `/dashboard/${guildId}/applications` },
   ];
 
   const Sidebar = () => (
@@ -165,6 +167,7 @@ export default function GuildDashboard({ tab }: Props) {
         {activeTab === "overview" && <GuildOverview guildId={guildId} guild={guild} />}
         {activeTab === "commands" && <GuildCommands guildId={guildId} />}
         {activeTab === "automod" && <GuildAutomod guildId={guildId} />}
+        {activeTab === "applications" && <GuildApplications guildId={guildId} />}
       </main>
     </div>
   );

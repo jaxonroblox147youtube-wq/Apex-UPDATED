@@ -22,6 +22,8 @@ CUSTOM_CMDS_FILE  = "custom_commands.json"
 AUTOMOD_FILE      = "automod_settings.json"
 YOUTUBE_SETTINGS_FILE = "youtube_settings.json"
 TICKET_SETTINGS_FILE  = "ticket_settings.json"
+APPLICATIONS_FILE     = "applications.json"
+APPLICATION_SUBMISSIONS_FILE = "application_submissions.json"
 
 BOT_START_TIME = None
 
@@ -65,6 +67,11 @@ class MyBot(commands.Bot):
     async def setup_hook(self):
         self.add_view(TicketPanelView())
         self.add_view(TicketChannelView())
+        for applications in load_json(APPLICATIONS_FILE).values():
+            for application in applications:
+                self.add_view(ApplicationPanelView(application["id"]))
+        for submission in load_json(APPLICATION_SUBMISSIONS_FILE).values():
+            self.add_view(ApplicationReviewView(submission["id"]))
         await self.tree.sync()
         print(f"Synced slash commands for {self.user}")
 
@@ -2299,6 +2306,185 @@ import time as _time
 URL_PATTERN = re.compile(r"https?://\S+|discord\.gg/\S+", re.IGNORECASE)
 
 # ══════════════════════════════════════════════════════════════════════════════
+# APPLICATION SYSTEM
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _applications_for_guild(guild_id: int) -> list[dict]:
+    return load_json(APPLICATIONS_FILE).get(str(guild_id), [])
+
+def _find_application(guild_id: int, application_id: str) -> dict | None:
+    return next((a for a in _applications_for_guild(guild_id) if a.get("id") == application_id), None)
+
+def _save_submission(submission: dict):
+    data = load_json(APPLICATION_SUBMISSIONS_FILE)
+    data[submission["id"]] = submission
+    save_json(APPLICATION_SUBMISSIONS_FILE, data)
+
+class ApplicationReviewView(discord.ui.View):
+    def __init__(self, submission_id: str):
+        super().__init__(timeout=None)
+        self.submission_id = submission_id
+        self.accept.custom_id = f"application_accept:{submission_id}"
+        self.decline.custom_id = f"application_decline:{submission_id}"
+
+    async def _decide(self, interaction: discord.Interaction, decision: str):
+        if not interaction.guild or not (
+            interaction.user.guild_permissions.manage_guild
+            or interaction.user.guild_permissions.manage_messages
+        ):
+            await interaction.response.send_message("❌ Only staff can review applications.", ephemeral=True)
+            return
+        submissions = load_json(APPLICATION_SUBMISSIONS_FILE)
+        submission = submissions.get(self.submission_id)
+        if not submission:
+            await interaction.response.send_message("❌ This application submission no longer exists.", ephemeral=True)
+            return
+        if submission.get("status") != "pending":
+            await interaction.response.send_message(
+                f"This application was already **{submission.get('status', 'reviewed')}**.",
+                ephemeral=True,
+            )
+            return
+
+        submission["status"] = decision
+        submission["reviewed_by"] = interaction.user.id
+        submission["reviewed_at"] = datetime.datetime.utcnow().isoformat()
+        save_json(APPLICATION_SUBMISSIONS_FILE, submissions)
+
+        applicant = interaction.guild.get_member(int(submission["applicant_id"]))
+        decision_text = "accepted" if decision == "accepted" else "declined"
+        if applicant:
+            try:
+                await applicant.send(
+                    f"📬 Your **{submission['application_name']}** application in "
+                    f"**{interaction.guild.name}** has been **{decision_text}** by staff."
+                )
+            except discord.Forbidden:
+                pass
+
+        result_channel_id = submission.get("results_channel_id")
+        result_channel = interaction.guild.get_channel(int(result_channel_id)) if result_channel_id else None
+        if result_channel:
+            await result_channel.send(
+                f"📬 **{submission['application_name']}** application from "
+                f"<@{submission['applicant_id']}> was **{decision_text}** by {interaction.user.mention}."
+            )
+
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(
+            content=f"📬 Application **{decision_text}** by {interaction.user.mention}.",
+            view=self,
+        )
+
+    @discord.ui.button(label="Accept", emoji="✅", style=discord.ButtonStyle.success, custom_id="application_accept")
+    async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._decide(interaction, "accepted")
+
+    @discord.ui.button(label="Decline", emoji="❌", style=discord.ButtonStyle.danger, custom_id="application_decline")
+    async def decline(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._decide(interaction, "declined")
+
+class ApplicationAnswerModal(discord.ui.Modal):
+    def __init__(self, application: dict):
+        super().__init__(title=f"Apply: {application['name']}"[:45])
+        self.application = application
+        self.inputs = []
+        for question in application.get("questions", [])[:5]:
+            field = discord.ui.TextInput(
+                label=question["text"][:45],
+                style=discord.TextStyle.short,
+                placeholder="Choose Yes or No",
+                required=True,
+                max_length=3,
+            )
+            self.inputs.append((question, field))
+            self.add_item(field)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            await interaction.response.send_message("❌ Applications can only be submitted in a server.", ephemeral=True)
+            return
+        answers = {
+            question["text"]: field.value.strip().title()
+            for question, field in self.inputs
+        }
+        invalid = [value for value in answers.values() if value not in {"Yes", "No"}]
+        if invalid:
+            await interaction.response.send_message("❌ Please answer every question with exactly **Yes** or **No**.", ephemeral=True)
+            return
+        submission_id = f"{interaction.guild.id}-{interaction.user.id}-{int(time.time())}"
+        submission = {
+            "id": submission_id,
+            "guild_id": interaction.guild.id,
+            "application_id": self.application["id"],
+            "application_name": self.application["name"],
+            "applicant_id": interaction.user.id,
+            "answers": answers,
+            "results_channel_id": self.application.get("results_channel_id"),
+            "status": "pending",
+            "created_at": datetime.datetime.utcnow().isoformat(),
+        }
+        _save_submission(submission)
+        review_channel_id = self.application.get("results_channel_id")
+        review_channel = interaction.guild.get_channel(int(review_channel_id)) if review_channel_id else interaction.channel
+        embed = discord.Embed(
+            title=f"📄 New {self.application['name']} Application",
+            description=f"Applicant: {interaction.user.mention}\nStatus: **Pending review**",
+            color=discord.Color.blurple(),
+        )
+        for question, answer in answers.items():
+            embed.add_field(name=question, value=f"**{answer}**", inline=False)
+        await review_channel.send(embed=embed, view=ApplicationReviewView(submission_id))
+        await interaction.response.send_message("✅ Your application has been submitted for review.", ephemeral=True)
+
+class ApplicationPanelView(discord.ui.View):
+    def __init__(self, application_id: str):
+        super().__init__(timeout=None)
+        self.application_id = application_id
+        self.apply.custom_id = f"application_apply:{application_id}"
+
+    @discord.ui.button(label="Apply", emoji="📝", style=discord.ButtonStyle.primary, custom_id="application_apply")
+    async def apply(self, interaction: discord.Interaction, button: discord.ui.Button):
+        application = _find_application(interaction.guild.id, self.application_id) if interaction.guild else None
+        if not application:
+            await interaction.response.send_message("❌ This application is no longer available.", ephemeral=True)
+            return
+        await interaction.response.send_modal(ApplicationAnswerModal(application))
+
+async def application_autocomplete(interaction: discord.Interaction, current: str):
+    applications = _applications_for_guild(interaction.guild.id) if interaction.guild else []
+    return [
+        app_commands.Choice(name=app["name"][:100], value=app["id"])
+        for app in applications if current.lower() in app["name"].lower()
+    ][:25]
+
+@bot.tree.command(name="send-application", description="Send an application form to a channel")
+@app_commands.describe(application="Application to send", channel="Optional channel override")
+@app_commands.autocomplete(application=application_autocomplete)
+@app_commands.checks.has_permissions(manage_guild=True)
+async def send_application(interaction: discord.Interaction, application: str, channel: discord.TextChannel | None = None):
+    selected = _find_application(interaction.guild.id, application) if interaction.guild else None
+    if not selected:
+        await interaction.response.send_message("❌ Choose an application from the autocomplete list.", ephemeral=True)
+        return
+    target_channel = channel
+    if target_channel is None and selected.get("publish_channel_id") and interaction.guild:
+        target_channel = interaction.guild.get_channel(int(selected["publish_channel_id"]))
+    if target_channel is None:
+        await interaction.response.send_message("❌ Select a channel or choose a publish channel for this application in the dashboard.", ephemeral=True)
+        return
+    embed = discord.Embed(
+        title=f"📝 {selected['name']}",
+        description="Click **Apply** below and answer every Yes/No question to submit your application.",
+        color=discord.Color.blurple(),
+    )
+    for index, question in enumerate(selected.get("questions", []), 1):
+        embed.add_field(name=f"Question {index}", value=question["text"], inline=False)
+    await target_channel.send(embed=embed, view=ApplicationPanelView(selected["id"]))
+    await interaction.response.send_message(f"✅ **{selected['name']}** sent to {target_channel.mention}.", ephemeral=True)
+
+# ══════════════════════════════════════════════════════════════════════════════
 # TICKET SYSTEM
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -2559,7 +2745,8 @@ async def main():
     if not token:
         print("ERROR: DISCORD_TOKEN not set")
         return
-    await start_keep_alive()
+    if not os.environ.get("APEX_MANAGED_BY_API"):
+        await start_keep_alive()
     await bot.start(token)
 
 if __name__ == "__main__" or os.environ.get("DISCORD_TOKEN"):

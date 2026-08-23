@@ -4,6 +4,7 @@ import botRouter from "./bot";
 import authRouter from "./auth";
 import guildRouter from "./guild";
 import robloxRouter from "./roblox";
+import applicationsRouter from "./applications";
 
 const router: IRouter = Router();
 
@@ -12,5 +13,6 @@ router.use(authRouter);
 router.use(botRouter);
 router.use(guildRouter);
 router.use(robloxRouter);
+router.use(applicationsRouter);
 
 export default router;

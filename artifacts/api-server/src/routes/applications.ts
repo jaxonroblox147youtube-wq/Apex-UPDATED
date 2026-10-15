@@ -27,6 +27,43 @@ function writeApplications(data: ApplicationFile) {
   writeFileSync(APPLICATIONS_FILE, JSON.stringify(data, null, 2));
 }
 
+async function publishApplication(channelId: string, form: ApplicationForm) {
+  const embed = {
+    title: `📝 ${form.name}`,
+    description: "Click **Apply** below and answer every Yes/No question to submit your application.",
+    color: 0x5865f2,
+    fields: form.questions.map((question, index) => ({
+      name: `Question ${index + 1}`,
+      value: question.text,
+      inline: false,
+    })),
+  };
+  const response = await fetch(`${DISCORD_API}/channels/${channelId}/messages`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bot ${process.env["DISCORD_TOKEN"]}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      embeds: [embed],
+      components: [{
+        type: 1,
+        components: [{
+          type: 2,
+          style: 1,
+          label: "Apply",
+          emoji: { name: "📝" },
+          custom_id: `application_apply:${form.id}`,
+        }],
+      }],
+    }),
+  });
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Discord rejected the panel (${response.status}): ${detail.slice(0, 200)}`);
+  }
+}
+
 function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!(req.session as any).user) { res.status(401).json({ error: "Not authenticated" }); return; }
   next();
@@ -61,7 +98,7 @@ router.get("/guilds/:guildId/applications", requireAuth, requireGuildAccess, (re
   res.json(readApplications()[req.params["guildId"]!] ?? []);
 });
 
-router.post("/guilds/:guildId/applications", requireAuth, requireGuildAccess, (req, res) => {
+router.post("/guilds/:guildId/applications", requireAuth, requireGuildAccess, async (req, res) => {
   const { name, questions, publish_channel_id, results_channel_id } = req.body as {
     name?: string; questions?: Array<{ text?: string }>; publish_channel_id?: string; results_channel_id?: string;
   };
@@ -89,6 +126,17 @@ router.post("/guilds/:guildId/applications", requireAuth, requireGuildAccess, (r
   };
   all[guildId] = [...forms, form];
   writeApplications(all);
+  if (form.publish_channel_id) {
+    try {
+      await publishApplication(form.publish_channel_id, form);
+    } catch (error) {
+      res.status(502).json({
+        error: "Application was saved, but Discord rejected the panel. Check the bot's Send Messages and Embed Links permissions in that channel.",
+        detail: error instanceof Error ? error.message : "Discord publish failed",
+      });
+      return;
+    }
+  }
   res.status(201).json(form);
 });
 
@@ -104,6 +152,23 @@ router.patch("/guilds/:guildId/applications/:applicationId", requireAuth, requir
   if (body.results_channel_id !== undefined) form.results_channel_id = body.results_channel_id;
   writeApplications(all);
   res.json(form);
+});
+
+router.post("/guilds/:guildId/applications/:applicationId/publish", requireAuth, requireGuildAccess, async (req, res) => {
+  const forms = readApplications()[req.params["guildId"]!] ?? [];
+  const form = forms.find((item) => item.id === req.params["applicationId"]);
+  if (!form) { res.status(404).json({ error: "Application not found" }); return; }
+  const channelId = (req.body as { channel_id?: string }).channel_id || form.publish_channel_id;
+  if (!channelId) { res.status(400).json({ error: "Choose a publish channel first" }); return; }
+  try {
+    await publishApplication(channelId, form);
+    res.json({ ok: true, channel_id: channelId });
+  } catch (error) {
+    res.status(502).json({
+      error: "Discord rejected the panel. Check the bot's Send Messages and Embed Links permissions in that channel.",
+      detail: error instanceof Error ? error.message : "Discord publish failed",
+    });
+  }
 });
 
 router.delete("/guilds/:guildId/applications/:applicationId", requireAuth, requireGuildAccess, (req, res) => {

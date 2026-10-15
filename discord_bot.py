@@ -175,10 +175,10 @@ async def check_youtube():
                         try: await _scheduled_msg.edit(content=c, embed=e)
                         except: await ch.send(c, embed=e)
                     else: await ch.send(c, embed=e)
-                await bot.change_presence(status=discord.Status.dnd, activity=discord.Streaming(name="Jaxon is LIVE! 🔴", url=YOUTUBE_LIVE_URL))
+                await bot.change_presence(status=discord.Status.online, activity=discord.Streaming(name="jaxonroblox147", url="https://www.twitch.tv/jaxonroblox147"))
             elif not is_live and _yt_was_live:
                 _yt_was_live = False
-                await bot.change_presence(status=discord.Status.dnd, activity=discord.Activity(type=discord.ActivityType.watching, name="over the server 👀"))
+                await bot.change_presence(status=discord.Status.online, activity=discord.Streaming(name="jaxonroblox147", url="https://www.twitch.tv/jaxonroblox147"))
 
             if _yt_channel_id and not is_live:
                 rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={_yt_channel_id}"
@@ -202,10 +202,10 @@ async def on_ready():
     global BOT_START_TIME
     BOT_START_TIME = datetime.datetime.utcnow()
     await bot.change_presence(
-        status=discord.Status.dnd,
+        status=discord.Status.online,
         activity=discord.Streaming(
-            name="JaxonRoblo on YouTube",
-            url=YOUTUBE_CHANNEL_PAGE,
+            name="jaxonroblox147",
+            url="https://www.twitch.tv/jaxonroblox147",
         )
     )
     print(f"Logged in as {bot.user}")
@@ -2450,6 +2450,18 @@ class ApplicationPanelView(discord.ui.View):
         if not application:
             await interaction.response.send_message("❌ This application is no longer available.", ephemeral=True)
             return
+        await interaction.response.send_modal(ApplicationAnswerModal(application))
+
+@bot.listen("on_interaction")
+async def application_component_fallback(interaction: discord.Interaction):
+    """Handle panels published directly by the dashboard before the bot reloads views."""
+    if interaction.type != discord.InteractionType.component or interaction.response.is_done():
+        return
+    custom_id = interaction.data.get("custom_id", "") if interaction.data else ""
+    if not custom_id.startswith("application_apply:") or not interaction.guild:
+        return
+    application = _find_application(interaction.guild.id, custom_id.split(":", 1)[1])
+    if application:
         await interaction.response.send_modal(ApplicationAnswerModal(application))
 
 async def application_autocomplete(interaction: discord.Interaction, current: str):

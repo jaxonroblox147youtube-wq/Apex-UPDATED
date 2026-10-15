@@ -81,6 +81,18 @@ export default function GuildApplications({ guildId }: { guildId: string }) {
       toast({ title: "Application deleted" });
     },
   });
+  const publish = useMutation({
+    mutationFn: async ({ id, channel_id }: { id: string; channel_id: string }) => {
+      const response = await fetch(`/api/guilds/${guildId}/applications/${id}/publish`, {
+        method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channel_id }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Failed to send to Discord");
+    },
+    onSuccess: () => toast({ title: "Application sent to Discord" }),
+    onError: (error: Error) => toast({ title: "Could not send to Discord", description: error.message, variant: "destructive" }),
+  });
 
   const channelName = (id?: string) => channels.data?.find((channel) => channel.id === id)?.name || "Not selected";
   const updateQuestion = (index: number, value: string) =>
@@ -115,9 +127,15 @@ export default function GuildApplications({ guildId }: { guildId: string }) {
                       <CardTitle className="text-lg">{application.name}</CardTitle>
                       <CardDescription>{application.questions.length} Yes/No question{application.questions.length === 1 ? "" : "s"}</CardDescription>
                     </div>
-                    <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive" onClick={() => remove.mutate(application.id)}>
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
+                    <div className="flex gap-1">
+                      <Button variant="outline" size="sm" disabled={publish.isPending || (!application.publish_channel_id && !publishChannel)} onClick={() => {
+                        const channel_id = application.publish_channel_id || publishChannel;
+                        if (channel_id) publish.mutate({ id: application.id, channel_id });
+                      }}><Send className="w-3.5 h-3.5 mr-1.5" />Send to Discord</Button>
+                      <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive" onClick={() => remove.mutate(application.id)}>
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-3">

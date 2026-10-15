@@ -10,6 +10,7 @@ import discord
 import string
 import urllib.parse
 import time as _time
+import uuid
 from discord import app_commands
 from discord.ext import commands, tasks
 
@@ -22,8 +23,9 @@ CUSTOM_CMDS_FILE  = "custom_commands.json"
 AUTOMOD_FILE      = "automod_settings.json"
 YOUTUBE_SETTINGS_FILE = "youtube_settings.json"
 TICKET_SETTINGS_FILE  = "ticket_settings.json"
-APPLICATIONS_FILE     = "applications.json"
-APPLICATION_SUBMISSIONS_FILE = "application_submissions.json"
+_WORKSPACE_DIR = os.path.dirname(os.path.abspath(__file__))
+APPLICATIONS_FILE     = os.path.join(_WORKSPACE_DIR, "applications.json")
+APPLICATION_SUBMISSIONS_FILE = os.path.join(_WORKSPACE_DIR, "application_submissions.json")
 
 BOT_START_TIME = None
 
@@ -2351,7 +2353,13 @@ class ApplicationReviewView(discord.ui.View):
         submission["reviewed_at"] = datetime.datetime.utcnow().isoformat()
         save_json(APPLICATION_SUBMISSIONS_FILE, submissions)
 
-        applicant = interaction.guild.get_member(int(submission["applicant_id"]))
+        applicant_id = int(submission["applicant_id"])
+        applicant = interaction.guild.get_member(applicant_id)
+        if applicant is None:
+            try:
+                applicant = await interaction.guild.fetch_member(applicant_id)
+            except discord.NotFound:
+                applicant = None
         decision_text = "accepted" if decision == "accepted" else "declined"
         if applicant:
             try:
@@ -2413,7 +2421,7 @@ class ApplicationAnswerModal(discord.ui.Modal):
         if invalid:
             await interaction.response.send_message("❌ Please answer every question with exactly **Yes** or **No**.", ephemeral=True)
             return
-        submission_id = f"{interaction.guild.id}-{interaction.user.id}-{int(time.time())}"
+        submission_id = uuid.uuid4().hex
         submission = {
             "id": submission_id,
             "guild_id": interaction.guild.id,

@@ -15,6 +15,7 @@ type Application = {
   name: string;
   questions: { id: string; text: string }[];
   publish_channel_id?: string;
+  published_channel_id?: string;
   results_channel_id?: string;
   created_at: string;
 };
@@ -28,6 +29,7 @@ export default function GuildApplications({ guildId }: { guildId: string }) {
   const [questions, setQuestions] = useState([""]);
   const [publishChannel, setPublishChannel] = useState("");
   const [resultsChannel, setResultsChannel] = useState("");
+  const [applicationChannels, setApplicationChannels] = useState<Record<string, string>>({});
 
   const applications = useQuery<Application[]>({
     queryKey: key(guildId),
@@ -60,13 +62,21 @@ export default function GuildApplications({ guildId }: { guildId: string }) {
         }),
       });
       const body = await response.json();
-      if (!response.ok) throw new Error(body.error || "Failed to create application");
+      if (!response.ok) throw new Error([body.error, body.detail].filter(Boolean).join(": ") || "Failed to create application");
       return body;
     },
-    onSuccess: () => {
+    onSuccess: (created) => {
       queryClient.invalidateQueries({ queryKey: key(guildId) });
       setName(""); setQuestions([""]); setPublishChannel(""); setResultsChannel("");
-      toast({ title: "Application created", description: "Use /send-application in Discord to publish it." });
+      if (created.published) {
+        toast({ title: "Application created and sent to Discord" });
+      } else {
+        toast({
+          title: "Application saved, but not sent",
+          description: created.publish_error || "Choose a channel on the application card, then select Send to Discord.",
+          variant: created.publish_error ? "destructive" : "default",
+        });
+      }
     },
     onError: (error: Error) => toast({ title: "Could not create application", description: error.message, variant: "destructive" }),
   });
@@ -88,9 +98,12 @@ export default function GuildApplications({ guildId }: { guildId: string }) {
         body: JSON.stringify({ channel_id }),
       });
       const body = await response.json();
-      if (!response.ok) throw new Error(body.error || "Failed to send to Discord");
+      if (!response.ok) throw new Error([body.error, body.detail].filter(Boolean).join(": ") || "Failed to send to Discord");
     },
-    onSuccess: () => toast({ title: "Application sent to Discord" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: key(guildId) });
+      toast({ title: "Application sent to Discord" });
+    },
     onError: (error: Error) => toast({ title: "Could not send to Discord", description: error.message, variant: "destructive" }),
   });
 
@@ -128,10 +141,10 @@ export default function GuildApplications({ guildId }: { guildId: string }) {
                       <CardDescription>{application.questions.length} Yes/No question{application.questions.length === 1 ? "" : "s"}</CardDescription>
                     </div>
                     <div className="flex gap-1">
-                      <Button variant="outline" size="sm" disabled={publish.isPending || (!application.publish_channel_id && !publishChannel)} onClick={() => {
-                        const channel_id = application.publish_channel_id || publishChannel;
+                      <Button variant="outline" size="sm" disabled={publish.isPending || !(applicationChannels[application.id] || application.publish_channel_id)} onClick={() => {
+                        const channel_id = applicationChannels[application.id] || application.publish_channel_id;
                         if (channel_id) publish.mutate({ id: application.id, channel_id });
-                      }}><Send className="w-3.5 h-3.5 mr-1.5" />Send to Discord</Button>
+                      }}><Send className="w-3.5 h-3.5 mr-1.5" />{application.published_channel_id ? "Resend" : "Send to Discord"}</Button>
                       <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive" onClick={() => remove.mutate(application.id)}>
                         <Trash2 className="w-4 h-4" />
                       </Button>
@@ -145,6 +158,17 @@ export default function GuildApplications({ guildId }: { guildId: string }) {
                         <span className="text-primary font-semibold">{index + 1}.</span><span>{question.text}</span>
                       </div>
                     ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <select
+                      aria-label={`Publish ${application.name} to channel`}
+                      className="flex-1 h-9 rounded-md border border-input bg-background px-3 text-sm"
+                      value={applicationChannels[application.id] ?? application.publish_channel_id ?? ""}
+                      onChange={(event) => setApplicationChannels((current) => ({ ...current, [application.id]: event.target.value }))}
+                    >
+                      <option value="">Choose a channel</option>
+                      {channels.data?.map((channel) => <option key={channel.id} value={channel.id}>#{channel.name}</option>)}
+                    </select>
                   </div>
                   <div className="flex flex-wrap gap-2 text-xs text-muted-foreground pt-2 border-t border-border">
                     <span className="inline-flex items-center gap-1"><Send className="w-3 h-3" /> Publish: #{channelName(application.publish_channel_id)}</span>

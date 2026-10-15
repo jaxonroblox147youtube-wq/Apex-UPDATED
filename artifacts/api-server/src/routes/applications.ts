@@ -3,7 +3,8 @@ import { readFileSync, writeFileSync, existsSync } from "fs";
 import path from "path";
 
 const router: IRouter = Router();
-const APPLICATIONS_FILE = path.resolve(import.meta.dirname, "../../../applications.json");
+const WORKSPACE_ROOT = path.resolve(import.meta.dirname, "../../../");
+const APPLICATIONS_FILE = path.join(WORKSPACE_ROOT, "applications.json");
 const DISCORD_API = "https://discord.com/api/v10";
 const APPLICATION_ID = "1507776524189827242";
 
@@ -14,6 +15,7 @@ type ApplicationForm = {
   questions: Question[];
   publish_channel_id?: string;
   results_channel_id?: string;
+  published_channel_id?: string;
   created_at: string;
 };
 type ApplicationFile = { [guildId: string]: ApplicationForm[] };
@@ -27,7 +29,18 @@ function writeApplications(data: ApplicationFile) {
   writeFileSync(APPLICATIONS_FILE, JSON.stringify(data, null, 2));
 }
 
-async function publishApplication(channelId: string, form: ApplicationForm) {
+async function publishApplication(guildId: string, channelId: string, form: ApplicationForm) {
+  const channelResponse = await fetch(`${DISCORD_API}/channels/${channelId}`, {
+    headers: { Authorization: `Bot ${process.env["DISCORD_TOKEN"]}` },
+  });
+  if (!channelResponse.ok) {
+    const detail = await channelResponse.text();
+    throw new Error(`Cannot access the selected channel (${channelResponse.status}): ${detail.slice(0, 180)}`);
+  }
+  const channel = await channelResponse.json() as { id: string; guild_id?: string; type: number };
+  if (channel.guild_id !== guildId || channel.type !== 0) {
+    throw new Error("The selected channel is not a text channel in this server.");
+  }
   const embed = {
     title: `📝 ${form.name}`,
     description: "Click **Apply** below and answer every Yes/No question to submit your application.",
@@ -126,18 +139,17 @@ router.post("/guilds/:guildId/applications", requireAuth, requireGuildAccess, as
   };
   all[guildId] = [...forms, form];
   writeApplications(all);
+  let publishError: string | undefined;
   if (form.publish_channel_id) {
     try {
-      await publishApplication(form.publish_channel_id, form);
+      await publishApplication(guildId, form.publish_channel_id, form);
+      form.published_channel_id = form.publish_channel_id;
+      writeApplications(all);
     } catch (error) {
-      res.status(502).json({
-        error: "Application was saved, but Discord rejected the panel. Check the bot's Send Messages and Embed Links permissions in that channel.",
-        detail: error instanceof Error ? error.message : "Discord publish failed",
-      });
-      return;
+      publishError = error instanceof Error ? error.message : "Discord publish failed";
     }
   }
-  res.status(201).json(form);
+  res.status(201).json({ ...form, published: Boolean(form.published_channel_id), publish_error: publishError });
 });
 
 router.patch("/guilds/:guildId/applications/:applicationId", requireAuth, requireGuildAccess, (req, res) => {
@@ -155,17 +167,23 @@ router.patch("/guilds/:guildId/applications/:applicationId", requireAuth, requir
 });
 
 router.post("/guilds/:guildId/applications/:applicationId/publish", requireAuth, requireGuildAccess, async (req, res) => {
-  const forms = readApplications()[req.params["guildId"]!] ?? [];
+  const all = readApplications();
+  const guildId = req.params["guildId"]!;
+  const forms = all[guildId] ?? [];
   const form = forms.find((item) => item.id === req.params["applicationId"]);
   if (!form) { res.status(404).json({ error: "Application not found" }); return; }
   const channelId = (req.body as { channel_id?: string }).channel_id || form.publish_channel_id;
   if (!channelId) { res.status(400).json({ error: "Choose a publish channel first" }); return; }
   try {
-    await publishApplication(channelId, form);
+    await publishApplication(guildId, channelId, form);
+    form.publish_channel_id = channelId;
+    form.published_channel_id = channelId;
+    all[guildId] = forms;
+    writeApplications(all);
     res.json({ ok: true, channel_id: channelId });
   } catch (error) {
     res.status(502).json({
-      error: "Discord rejected the panel. Check the bot's Send Messages and Embed Links permissions in that channel.",
+      error: "Could not send the application to Discord.",
       detail: error instanceof Error ? error.message : "Discord publish failed",
     });
   }

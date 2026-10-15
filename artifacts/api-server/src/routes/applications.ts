@@ -43,7 +43,7 @@ async function publishApplication(guildId: string, channelId: string, form: Appl
   }
   const embed = {
     title: `📝 ${form.name}`,
-    description: "Click **Apply** below and answer every Yes/No question to submit your application.",
+    description: "Click **Apply** below and write an answer to each question.",
     color: 0x5865f2,
     fields: form.questions.map((question, index) => ({
       name: `Question ${index + 1}`,

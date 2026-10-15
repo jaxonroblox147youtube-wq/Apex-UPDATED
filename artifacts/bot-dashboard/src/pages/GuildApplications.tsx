@@ -118,7 +118,7 @@ export default function GuildApplications({ guildId }: { guildId: string }) {
           <div className="p-2 rounded-lg bg-primary/10 text-primary"><FileText className="w-5 h-5" /></div>
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Applications</h1>
-            <p className="text-muted-foreground mt-1">Build Yes/No application forms and send them to Discord.</p>
+            <p className="text-muted-foreground mt-1">Build open-ended application forms and send them to Discord.</p>
           </div>
         </div>
       </div>
@@ -138,7 +138,7 @@ export default function GuildApplications({ guildId }: { guildId: string }) {
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <CardTitle className="text-lg">{application.name}</CardTitle>
-                      <CardDescription>{application.questions.length} Yes/No question{application.questions.length === 1 ? "" : "s"}</CardDescription>
+                      <CardDescription>{application.questions.length} open-ended question{application.questions.length === 1 ? "" : "s"}</CardDescription>
                     </div>
                     <div className="flex gap-1">
                       <Button variant="outline" size="sm" disabled={publish.isPending || !(applicationChannels[application.id] || application.publish_channel_id)} onClick={() => {
@@ -182,7 +182,7 @@ export default function GuildApplications({ guildId }: { guildId: string }) {
         <Card className="sticky top-8">
           <CardHeader>
             <CardTitle>New Application</CardTitle>
-            <CardDescription>Applicants answer each question with Yes or No.</CardDescription>
+            <CardDescription>Applicants can write a free-text answer to every question.</CardDescription>
           </CardHeader>
           <CardContent>
             <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); if (name.trim() && questions.some((q) => q.trim())) create.mutate(); }}>

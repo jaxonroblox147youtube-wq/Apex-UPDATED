@@ -11,6 +11,7 @@ import string
 import urllib.parse
 import time as _time
 import uuid
+import io
 from discord import app_commands
 from discord.ext import commands, tasks
 
@@ -2401,10 +2402,10 @@ class ApplicationAnswerModal(discord.ui.Modal):
         for question in application.get("questions", [])[:5]:
             field = discord.ui.TextInput(
                 label=question["text"][:45],
-                style=discord.TextStyle.short,
-                placeholder="Choose Yes or No",
+                style=discord.TextStyle.paragraph,
+                placeholder="Write your answer here",
                 required=True,
-                max_length=3,
+                max_length=4000,
             )
             self.inputs.append((question, field))
             self.add_item(field)
@@ -2413,13 +2414,12 @@ class ApplicationAnswerModal(discord.ui.Modal):
         if not interaction.guild:
             await interaction.response.send_message("❌ Applications can only be submitted in a server.", ephemeral=True)
             return
-        answers = {
-            question["text"]: field.value.strip().title()
+        answers = [
+            {"question": question["text"], "answer": field.value.strip()}
             for question, field in self.inputs
-        }
-        invalid = [value for value in answers.values() if value not in {"Yes", "No"}]
-        if invalid:
-            await interaction.response.send_message("❌ Please answer every question with exactly **Yes** or **No**.", ephemeral=True)
+        ]
+        if any(not item["answer"] for item in answers):
+            await interaction.response.send_message("Please enter an answer for each question.", ephemeral=True)
             return
         submission_id = uuid.uuid4().hex
         submission = {
@@ -2437,13 +2437,25 @@ class ApplicationAnswerModal(discord.ui.Modal):
         review_channel_id = self.application.get("results_channel_id")
         review_channel = interaction.guild.get_channel(int(review_channel_id)) if review_channel_id else interaction.channel
         embed = discord.Embed(
-            title=f"📄 New {self.application['name']} Application",
+            title=f"📄 New {self.application['name']} Application"[:256],
             description=f"Applicant: {interaction.user.mention}\nStatus: **Pending review**",
             color=discord.Color.blurple(),
         )
-        for question, answer in answers.items():
-            embed.add_field(name=question, value=f"**{answer}**", inline=False)
-        await review_channel.send(embed=embed, view=ApplicationReviewView(submission_id))
+        for item in answers:
+            question, answer = item["question"], item["answer"]
+            shown_answer = answer[:800]
+            if len(answer) > 800:
+                shown_answer += "\n… Full answer is in the attached file."
+            embed.add_field(name=question[:200], value=shown_answer or "(No answer)", inline=False)
+        full_answers = "\n\n".join(
+            f"{item['question']}\n{'-' * min(len(item['question']), 80)}\n{item['answer']}"
+            for item in answers
+        )
+        answer_file = discord.File(
+            io.BytesIO(full_answers.encode("utf-8")),
+            filename=f"application-{submission_id}-answers.txt",
+        )
+        await review_channel.send(embed=embed, view=ApplicationReviewView(submission_id), file=answer_file)
         await interaction.response.send_message("✅ Your application has been submitted for review.", ephemeral=True)
 
 class ApplicationPanelView(discord.ui.View):
@@ -2496,7 +2508,7 @@ async def send_application(interaction: discord.Interaction, application: str, c
         return
     embed = discord.Embed(
         title=f"📝 {selected['name']}",
-        description="Click **Apply** below and answer every Yes/No question to submit your application.",
+        description="Click **Apply** below and write an answer to each question.",
         color=discord.Color.blurple(),
     )
     for index, question in enumerate(selected.get("questions", []), 1):

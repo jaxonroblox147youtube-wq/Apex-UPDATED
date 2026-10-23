@@ -27,6 +27,67 @@ TICKET_SETTINGS_FILE  = "ticket_settings.json"
 _WORKSPACE_DIR = os.path.dirname(os.path.abspath(__file__))
 APPLICATIONS_FILE     = os.path.join(_WORKSPACE_DIR, "applications.json")
 APPLICATION_SUBMISSIONS_FILE = os.path.join(_WORKSPACE_DIR, "application_submissions.json")
+# ── MongoDB Global Intercept Wrapper ──────────────────────────────────────────
+import json
+import logging
+from pymongo import MongoClient
+
+# 1. Connect using the link you securely configured in Render
+try:
+    _mongo_client = MongoClient(os.environ.get("MONGO_URI"), serverSelectionTimeoutMS=5000)
+    _mongo_db = _mongo_client["ApexBotData"]
+    _mongo_collection = _mongo_db["cloud_json_files"]
+    print("✨ MongoDB Cloud Connected! Overriding local file operations safely.")
+except Exception as e:
+    print(f"❌ Failed to connect to MongoDB: {e}. Falling back to temporary local storage.")
+    _mongo_collection = None
+
+# 2. Intercept and override the native open() function globally for JSON files
+_original_open = open
+
+class CloudFileWrapper:
+    def __init__(self, filename, mode):
+        self.filename = os.path.basename(filename)
+        self.mode = mode
+        self.data_buffer = ""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if "w" in self.mode and _mongo_collection is not None:
+            try:
+                parsed_json = json.loads(self.data_buffer)
+                _mongo_collection.update_one(
+                    {"filename": self.filename},
+                    {"$set": {"data": parsed_json}},
+                    upsert=True
+                )
+            except Exception as e:
+                logging.error(f"MongoDB write crash on {self.filename}: {e}")
+        return False
+
+    def read(self):
+        if _mongo_collection is not None:
+            cloud_record = _mongo_collection.find_one({"filename": self.filename})
+            if cloud_record and "data" in cloud_record:
+                return json.dumps(cloud_record["data"])
+
+        # Fallback to local file if the cloud record doesn't exist yet
+        if os.path.exists(self.filename):
+            with _original_open(self.filename, "r", encoding="utf-8") as f:
+                return f.read()
+        return "{}"
+
+    def write(self, string_data):
+        self.data_buffer += string_data
+
+def open(file, mode="r", *args, **kwargs):
+    filename_str = str(file)
+    if filename_str.endswith(".json") and _mongo_collection is not None:
+        return CloudFileWrapper(filename_str, mode)
+    return _original_open(file, mode, *args, **kwargs)
+# ──────────────────────────────────────────────────────────────────────────────
 
 BOT_START_TIME = None
 

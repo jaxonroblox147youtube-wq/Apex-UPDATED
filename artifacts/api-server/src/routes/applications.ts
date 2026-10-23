@@ -43,7 +43,7 @@ async function publishApplication(guildId: string, channelId: string, form: Appl
   }
   const embed = {
     title: `📝 ${form.name}`,
-    description: "Click **Apply** below and write an answer to each question.",
+    description: "Click **Apply** below and answer every Yes/No question to submit your application.",
     color: 0x5865f2,
     fields: form.questions.map((question, index) => ({
       name: `Question ${index + 1}`,
@@ -167,19 +167,20 @@ router.patch("/guilds/:guildId/applications/:applicationId", requireAuth, requir
 });
 
 router.post("/guilds/:guildId/applications/:applicationId/publish", requireAuth, requireGuildAccess, async (req, res) => {
-  const all = readApplications();
-  const guildId = req.params["guildId"]!;
-  const forms = all[guildId] ?? [];
+  const forms = readApplications()[req.params["guildId"]!] ?? [];
   const form = forms.find((item) => item.id === req.params["applicationId"]);
   if (!form) { res.status(404).json({ error: "Application not found" }); return; }
   const channelId = (req.body as { channel_id?: string }).channel_id || form.publish_channel_id;
   if (!channelId) { res.status(400).json({ error: "Choose a publish channel first" }); return; }
   try {
-    await publishApplication(guildId, channelId, form);
+    await publishApplication(req.params["guildId"]!, channelId, form);
     form.publish_channel_id = channelId;
     form.published_channel_id = channelId;
-    all[guildId] = forms;
-    writeApplications(all);
+    writeApplications(readApplications());
+    const latest = readApplications();
+    const guildId = req.params["guildId"]!;
+    latest[guildId] = (latest[guildId] ?? []).map((item) => item.id === form.id ? form : item);
+    writeApplications(latest);
     res.json({ ok: true, channel_id: channelId });
   } catch (error) {
     res.status(502).json({

@@ -126,7 +126,8 @@ intents = discord.Intents.all()
 
 class MyBot(commands.Bot):
     def __init__(self):
-        super().__init__(command_prefix="!", intents=intents)
+        # Force your bot's HTTP layer to use an unbanned proxy address right here
+        super().__init__(command_prefix="!", intents=intents, proxy="http://scand.io")
 
     async def setup_hook(self):
         self.add_view(TicketPanelView())
@@ -153,6 +154,7 @@ async def write_stats():
         "updated_at": datetime.datetime.utcnow().isoformat() + "Z",
     }
     save_json(STATS_FILE, stats)
+
 
 # ── YouTube notification config ───────────────────────────────────────────────
 YOUTUBE_HANDLE       = "@JaxonRoblo"

@@ -126,8 +126,8 @@ intents = discord.Intents.all()
 
 class MyBot(commands.Bot):
     def __init__(self):
-        # Force your bot's HTTP layer to use an unbanned proxy address right here
-        super().__init__(command_prefix="!", intents=intents, proxy="http://scand.io")
+        # Force your bot's HTTP layer to use the corrected proxy format
+        super().__init__(command_prefix="!", intents=intents, proxy="http://discord.com.scand.io:80")
 
     async def setup_hook(self):
         self.add_view(TicketPanelView())
@@ -142,18 +142,6 @@ class MyBot(commands.Bot):
 
 bot = MyBot()
 
-@tasks.loop(seconds=30)
-async def write_stats():
-    stats = {
-        "status": "online",
-        "servers": len(bot.guilds),
-        "users": sum(g.member_count or 0 for g in bot.guilds),
-        "latency_ms": round(bot.latency * 1000),
-        "uptime_seconds": round((datetime.datetime.utcnow() - BOT_START_TIME).total_seconds()) if BOT_START_TIME else 0,
-        "command_count": 85,
-        "updated_at": datetime.datetime.utcnow().isoformat() + "Z",
-    }
-    save_json(STATS_FILE, stats)
 
 
 # ── YouTube notification config ───────────────────────────────────────────────

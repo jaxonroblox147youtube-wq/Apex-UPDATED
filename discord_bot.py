@@ -127,7 +127,11 @@ intents = discord.Intents.all()
 
 class MyBot(commands.Bot):
     def __init__(self):
-        super().__init__(command_prefix="!", intents=intents)
+        super().__init__(
+            command_prefix="!",
+            intents=intents,
+            proxy=os.environ.get("PROXY_URL")
+        )
 
     async def setup_hook(self):
         self.add_view(TicketPanelView())
@@ -137,8 +141,12 @@ class MyBot(commands.Bot):
                 self.add_view(ApplicationPanelView(application["id"]))
         for submission in load_json(APPLICATION_SUBMISSIONS_FILE).values():
             self.add_view(ApplicationReviewView(submission["id"]))
-        await self.tree.sync()
-        print(f"Synced slash commands for {self.user}")
+        
+        try:
+            await self.tree.sync()
+            print(f"Synced slash commands for {self.user}")
+        except discord.errors.HTTPException as e:
+            print(f"Skipped command sync due to rate limit/error: {e}")
 
 bot = MyBot()
 
@@ -154,9 +162,6 @@ async def write_stats():
         "updated_at": datetime.datetime.utcnow().isoformat() + "Z",
     }
     save_json(STATS_FILE, stats)
-
-
-
 
 # ── YouTube notification config ───────────────────────────────────────────────
 YOUTUBE_HANDLE       = "@JaxonRoblo"

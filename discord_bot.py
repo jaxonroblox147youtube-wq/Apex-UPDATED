@@ -1278,7 +1278,7 @@ async def truth(interaction: discord.Interaction):
         "What's the worst gift you've ever received?",
         "Have you ever pretended to like a gift you hated?",
         "What's the silliest reason you've cried?",
-        "What's the most ridiculous thing you've ever believed as a kid?",
+        "What's the most ridiculous thing you've ever believed as a kid?.",
         "Have you ever sent a text to the wrong person? What did it say?",
         "What's the most embarrassing song on your playlist?",
         "What's a bad habit you can't break?",
